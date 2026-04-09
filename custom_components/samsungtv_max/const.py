@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "samsungtv_max"
 DEFAULT_NAME = "Samsung TV"
-INTEGRATION_VERSION = "0.0.20"
+INTEGRATION_VERSION = "0.0.21"
 
 # ── Network ───────────────────────────────────────────────────────────────────
 TIZEN_WS_PORT = 8002          # WebSocket remote control (wss)
@@ -27,8 +27,9 @@ ON_LIVENESS_TIMEOUT = 2.0     # HTTP timeout for liveness probe
 # After FSM goes OFF, first HTTP probe uses INITIAL; later retries use OFF_SLOW_POLL.
 OFF_SLOW_POLL_INITIAL_DELAY = 5.0   # First :8001 check (e.g. IR power-on soon after HA said off)
 OFF_SLOW_POLL = 10.0              # Interval while TV stays unreachable (was 20s — too slow for IR on)
-# /api/v2/ on some sets (Wi‑Fi, older Tizen) can exceed sub-second probes — too short = never ON.
-POWER_PROBE_TIMEOUT = 4.0     # HTTP timeout for wake + off discovery polls to :8001
+# Matches HC3 POWER_PROBE_HTTP_MS=500. If wake/off polls flap or never reach ON on slow Wi‑Fi,
+# raise this again (we previously used 4.0s for that).
+POWER_PROBE_TIMEOUT = 0.5   # HTTP timeout for wake + off discovery polls to :8001
 TURNING_OFF_TIMEOUT = 20.0    # Optimistic TURNING_OFF → OFF fallback
 UNAUTHORIZED_RETRY = 30.0     # Retry WS connect after UNAUTHORIZED
 # Media player / remote: keep “on” in the UI briefly through FSM dips during boot/reconnect.

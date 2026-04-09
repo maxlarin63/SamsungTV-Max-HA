@@ -1,0 +1,51 @@
+---
+description: Home Assistant integration patterns for samsungtv_max
+globs: ["custom_components/**/*.py"]
+alwaysApply: false
+---
+
+# HA Integration Patterns
+
+## Config entry lifecycle
+- `async_setup_entry` creates `SamsungTVCoordinator`, stores in `entry.runtime_data`
+- `async_unload_entry` calls `coordinator.async_shutdown()` then unloads platforms
+- Never store state in module-level globals — always on the coordinator
+
+## Coordinator pattern
+`SamsungTVCoordinator` is NOT a `DataUpdateCoordinator` (no polling).
+It is push-based: WebSocket events drive state changes.
+Entities register via `coordinator.async_add_listener(callback)` and
+call `async_write_ha_state()` from the callback.
+
+## Entity rules
+- `_attr_has_entity_name = True` on all entities
+- `_attr_unique_id = f"{entry.entry_id}_{platform}"` pattern
+- `DeviceInfo` uses `identifiers={(DOMAIN, entry.entry_id)}`
+- No `should_poll` override needed — entities are push-updated
+
+## Services
+- Registered in `__init__.py` `_register_services()` — idempotent check first
+- Schema defined with `voluptuous`; also documented in `services.yaml`
+- Services operate on all entries if `entry_id` is omitted (broadcast)
+
+## Token rotation
+When the TV sends a new token in `ms.channel.connect`, call:
+```python
+hass.config_entries.async_update_entry(entry, data={**entry.data, CONF_TOKEN: token})
+```
+This persists it immediately so it survives HA restarts.
+Never store the token in entity state or attributes — only in config-entry data.
+
+## Timers
+Use `hass.loop.call_later(delay, sync_callback)` where sync_callback
+calls `asyncio.ensure_future(async_method())`.
+Always cancel timers in `_cancel_all_timers()` before state transitions.
+
+## Platform files
+- `media_player.py` — `MediaPlayerEntity`, power + volume + source
+- `remote.py` — `RemoteEntity`, key sending, rich `extra_state_attributes` for custom panel
+
+## HA events fired
+- `samsungtv_max_apps_updated` — when app catalog refreshes
+- `samsungtv_max_key_sent` — (future) when a key is sent
+- `samsungtv_max_app_launched` — (future) when an app is launched

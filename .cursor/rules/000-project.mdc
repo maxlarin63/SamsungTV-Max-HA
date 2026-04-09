@@ -1,0 +1,44 @@
+---
+description: Samsung TV Max HA integration — project overview and conventions
+globs: ["**/*.py", "**/*.json", "**/*.yaml", "**/*.md"]
+alwaysApply: true
+---
+
+# Samsung TV Max — Project Context
+
+## What this is
+A Home Assistant custom integration (`samsungtv_max`) for Samsung Tizen Smart TVs.
+Migrated from a FIBARO HC3 Quick App (Lua). Legacy (pre-Tizen) TVs are explicitly unsupported.
+
+## Domain
+`samsungtv_max`  — used in entity IDs, service names, event names, and config-entry keys.
+
+## Key files
+- `custom_components/samsungtv_max/` — the integration
+- `custom_components/samsungtv_max/tizen/` — Tizen protocol sub-package
+- `tests/` — pytest test suite
+- `scripts/` — deploy helpers (rsync/scp to HA)
+
+## Python version
+Python 3.12+. Use `from __future__ import annotations` in every module.
+
+## Style
+- Line length: 100 (ruff config)
+- ruff select: E, F, I, UP, B, SIM
+- Type hints everywhere; `from __future__ import annotations` at top
+- No bare `except:` — always `except Exception:` with `# noqa: BLE001` if intentional
+
+## Naming conventions
+- Constants: `UPPER_SNAKE_CASE` in `const.py`
+- Config-entry data keys: `CONF_*` constants, never raw strings
+- HA event names: `samsungtv_max_*` (underscore, lowercase)
+- Service names: `send_key`, `launch_app`, `enumerate_apps`
+
+## No legacy TCP
+This integration supports Tizen WebSocket only.
+If a device does not respond to GET /api/v2/ with JSON, it is unsupported.
+Never add TCPSocket / raw-socket code.
+
+## No SmartThings (yet)
+SmartThings API integration is planned but not implemented.
+Do not add SmartThings code until explicitly asked.

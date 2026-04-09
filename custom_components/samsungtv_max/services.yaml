@@ -1,0 +1,64 @@
+send_key:
+  name: Send Key
+  description: >
+    Send one or more remote key commands to the TV.
+    Key names follow the Samsung Tizen convention, e.g. KEY_VOLUMEUP, KEY_MUTE.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Target config entry ID. Omit to broadcast to all Samsung TV Max entries.
+      selector:
+        text:
+    key:
+      name: Key
+      description: "Key name, e.g. KEY_POWER, KEY_VOLUMEUP, KEY_ENTER."
+      required: true
+      example: KEY_VOLUMEUP
+      selector:
+        text:
+    count:
+      name: Repeat count
+      description: Number of times to send the key (default 1, max 20).
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 20
+
+launch_app:
+  name: Launch App
+  description: >
+    Launch an installed app on the TV by name or app ID.
+    Use enumerate_apps first to discover available apps.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Target config entry ID. Omit to broadcast to all Samsung TV Max entries.
+      selector:
+        text:
+    app_id:
+      name: App ID
+      description: "Tizen app ID, e.g. 111299001912 (YouTube)."
+      example: "111299001912"
+      selector:
+        text:
+    app_name:
+      name: App Name
+      description: "Display name of the app, e.g. YouTube."
+      example: YouTube
+      selector:
+        text:
+
+enumerate_apps:
+  name: Enumerate Apps
+  description: >
+    Trigger a fresh scan of installed apps on the TV.
+    Results are stored in the remote entity's apps attribute and
+    the media player's source_list.  A samsungtv_max_apps_updated
+    event is fired on the HA event bus when complete.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Target config entry ID. Omit to broadcast to all Samsung TV Max entries.
+      selector:
+        text:

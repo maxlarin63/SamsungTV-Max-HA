@@ -1,0 +1,102 @@
+{
+  "folders": [
+    { "path": "." }
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+    "python.terminal.activateEnvironment": true,
+    "editor.formatOnSave": true,
+    "[python]": {
+      "editor.defaultFormatter": "charliermarsh.ruff",
+      "editor.formatOnSave": true,
+      "editor.codeActionsOnSave": {
+        "source.organizeImports": "explicit"
+      }
+    },
+    "files.exclude": {
+      "**/__pycache__": true,
+      "**/*.pyc": true,
+      ".pytest_cache": true,
+      ".ruff_cache": true,
+      ".mypy_cache": true
+    }
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Test",
+        "type": "shell",
+        "command": "${workspaceFolder}/.venv/Scripts/python.exe",
+        "args": ["-m", "pytest", "tests/", "-v"],
+        "windows": {
+          "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+        },
+        "group": { "kind": "test", "isDefault": true },
+        "presentation": { "reveal": "always", "panel": "dedicated" }
+      },
+      {
+        "label": "Lint (ruff)",
+        "type": "shell",
+        "command": "${workspaceFolder}/.venv/Scripts/ruff",
+        "args": ["check", "custom_components/"],
+        "windows": {
+          "command": "${workspaceFolder}\\.venv\\Scripts\\ruff.exe"
+        },
+        "group": "build",
+        "presentation": { "reveal": "always", "panel": "dedicated" }
+      },
+      {
+        "label": "Deploy to HA",
+        "type": "shell",
+        "command": "powershell",
+        "args": ["-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\scripts\\deploy-ha-scp.ps1"],
+        "windows": {
+          "command": "powershell",
+          "args": ["-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\scripts\\deploy-ha-scp.ps1"]
+        },
+        "linux": {
+          "command": "bash",
+          "args": ["${workspaceFolder}/scripts/deploy-ha-rsync.sh"]
+        },
+        "osx": {
+          "command": "bash",
+          "args": ["${workspaceFolder}/scripts/deploy-ha-rsync.sh"]
+        },
+        "group": "build",
+        "presentation": { "reveal": "always", "panel": "dedicated" }
+      },
+      {
+        "label": "Deploy to HA (rsync via WSL)",
+        "type": "shell",
+        "command": "powershell",
+        "args": ["-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\scripts\\deploy-ha-wsl.ps1"],
+        "group": "build",
+        "presentation": { "reveal": "always", "panel": "dedicated" }
+      },
+      {
+        "label": "Clean caches",
+        "type": "shell",
+        "command": "powershell",
+        "args": ["-ExecutionPolicy", "Bypass", "-File", "${workspaceFolder}\\scripts\\clean.ps1"],
+        "linux": {
+          "command": "bash",
+          "args": ["${workspaceFolder}/scripts/clean.sh"]
+        },
+        "osx": {
+          "command": "bash",
+          "args": ["${workspaceFolder}/scripts/clean.sh"]
+        },
+        "group": "build",
+        "presentation": { "reveal": "always", "panel": "dedicated" }
+      }
+    ]
+  },
+  "extensions": {
+    "recommendations": [
+      "charliermarsh.ruff",
+      "ms-python.python",
+      "ms-python.vscode-pylance"
+    ]
+  }
+}

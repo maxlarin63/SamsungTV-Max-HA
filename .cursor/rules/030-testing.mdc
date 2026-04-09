@@ -1,0 +1,49 @@
+---
+description: Test conventions for samsungtv_max
+globs: ["tests/**/*.py"]
+alwaysApply: false
+---
+
+# Test Conventions
+
+## Stack
+- `pytest` + `pytest-asyncio` (asyncio_mode = "auto")
+- `pytest-homeassistant-custom-component` for HA internals
+- `pytest-socket` to block unintended network access
+- `unittest.mock` (AsyncMock, MagicMock, patch)
+
+## Test layout mirrors source
+```
+tests/
+  conftest.py          shared fixtures (mock_hass, mock_config_entry, sample_apps, mock_session)
+  test_config_flow.py
+  test_coordinator.py
+  test_media_player.py (future)
+  test_remote.py       (future)
+  tizen/
+    test_caps.py
+    test_power_fsm.py
+    test_ws_client.py
+    test_key_sender.py
+    test_app_manager.py
+```
+
+## Fixture conventions
+- `mock_hass` — minimal MagicMock with `loop.call_later`, `bus.async_fire`, `config_entries.async_update_entry`
+- `mock_config_entry` — MagicMock with `.data` dict matching real config-entry schema
+- `sample_apps` — short list of 4 apps covering app_type 2 and 4
+- `mock_session` — AsyncMock aiohttp.ClientSession
+
+## What to test
+- `caps.py` — all generation prefix boundaries
+- `power_fsm.py` — all valid and invalid transitions
+- `ws_client.py` — token extraction, unauthorized handling, app list parsing, send_key
+- `key_sender.py` — count, clear, ordering
+- `app_manager.py` — resolution (id / name / logical key / fallback), launch routing (WS vs REST)
+- `coordinator.py` — FSM transitions, token persistence, key guard, listener notification
+- `config_flow.py` — detect_tv: ok / cannot_connect / unsupported_model
+
+## What NOT to test
+- Internal HA framework wiring (entity registration, platform setup)
+- Actual network calls — always mock aiohttp and asyncio timers
+- Timer scheduling internals — test the *effects* of timer callbacks, not the scheduling itself

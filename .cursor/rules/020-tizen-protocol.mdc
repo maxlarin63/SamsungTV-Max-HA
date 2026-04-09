@@ -1,0 +1,57 @@
+---
+description: Samsung Tizen TV protocol details — WebSocket, REST, power FSM, app management
+globs: ["custom_components/samsungtv_max/tizen/**/*.py", "custom_components/samsungtv_max/coordinator.py"]
+alwaysApply: false
+---
+
+# Tizen Protocol Reference
+
+## Connection
+- WebSocket: `wss://<host>:8002/api/v2/channels/samsung.remote.control?name=<base64_name>&token=<token>`
+- REST API: `http://<host>:8001/api/v2/`
+- TV uses a self-signed cert → `ssl=False` in aiohttp
+
+## Token pairing
+1. Connect WS without token (or with expired token)
+2. TV shows "Allow / Deny" dialog
+3. After user allows: TV sends `ms.channel.connect` with token in `data.clients[*].attributes.token`
+4. Save token to config entry immediately (rotation / preservation)
+5. On next connect: include `&token=<saved_token>` — no dialog shown
+
+## Power FSM (5 states)
+```
+OFF → WAKING_UP → ON → TURNING_OFF → OFF
+WAKING_UP → UNAUTHORIZED → (retry) → WAKING_UP
+```
+- OFF: slow poll every 20s (GET :8001/api/v2/)
+- WAKING_UP: fast poll every 1s, give up after 30s
+- ON: liveness probe every 20s (GET :8001/api/v2/)
+- TURNING_OFF: optimistic; forced to OFF after 20s
+- UNAUTHORIZED: retry after 30s
+
+## Key sending
+- Method: `ms.remote.control` with `Cmd=Click`, `DataOfCmd=<KEY_NAME>`
+- Queue with 120ms inter-key delay (KeySender)
+- Keys only sent when `power_state == ON`
+
+## App management
+- Discovery: `ed.installedApp.get` WS message (requires `has_ghost_api` cap)
+- Launch downloaded apps (app_type 2): REST POST `/api/v2/applications/{appId}`
+- Launch native apps (app_type 4): WS `ed.apps.launch` with `action_type=DEEP_LINK`
+- `org.tizen.browser` is always native (WS launch) regardless of `app_type`
+- Current-app detection: REST GET `/api/v2/applications/{appId}` → `{"running": true}`
+  (requires `meta_tag_nav` cap)
+
+## TV generation / capability detection
+Model string from `GET /api/v2/` → `device.modelName`:
+- `16_HAWKM_FHD` → old generation; no `meta_tag_nav`, no `has_ghost_api`
+- `17_*`, `18_*` → transitional; partial caps
+- `QE49Q67RATXXH` (no numeric prefix) → modern; full caps
+
+## WOL
+- Send 5 WOL magic packets, 120ms apart, before entering WAKING_UP
+- MAC from `device.wifiMac` in /api/v2/ response (saved to config entry)
+
+## Key name convention
+Keys follow Samsung convention: `KEY_VOLUMEUP`, `KEY_MUTE`, `KEY_HOME`, `KEY_ENTER`, etc.
+Full list in `const.py`. The TV accepts any string; only well-known names are listed there.

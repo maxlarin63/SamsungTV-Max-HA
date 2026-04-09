@@ -1,0 +1,121 @@
+"""Constants for the Samsung TV Max integration."""
+
+from __future__ import annotations
+
+DOMAIN = "samsungtv_max"
+DEFAULT_NAME = "Samsung TV"
+INTEGRATION_VERSION = "0.0.1"
+
+# ── Network ───────────────────────────────────────────────────────────────────
+TIZEN_WS_PORT = 8002          # WebSocket remote control (wss)
+TIZEN_REST_PORT = 8001        # REST API + liveness probe (http)
+WS_APP_NAME = "HomeAssistant"  # Identifies HA in the token pairing dialog on TV
+
+# ── Config-entry keys ─────────────────────────────────────────────────────────
+CONF_HOST = "host"
+CONF_PORT = "port"
+CONF_TOKEN = "token"
+CONF_MAC = "mac"
+CONF_MODEL = "model"          # stored for info; e.g. "QE49Q67RATXXH"
+CONF_GENERATION = "generation"  # e.g. "19_" or "unknown"
+
+# ── Timeouts (seconds) — ported from Lua millisecond values ──────────────────
+WAKING_POLL_INTERVAL = 1.0    # HTTP poll while waking up
+WAKING_GIVE_UP = 30.0         # Give up waking after this many seconds
+ON_LIVENESS_INTERVAL = 20.0   # Liveness probe while ON
+ON_LIVENESS_TIMEOUT = 2.0     # HTTP timeout for liveness probe
+OFF_SLOW_POLL = 20.0          # Slow OFF poll to auto-detect TV coming back
+POWER_PROBE_TIMEOUT = 0.5     # Fast HTTP probe timeout during wake
+TURNING_OFF_TIMEOUT = 20.0    # Optimistic TURNING_OFF → OFF fallback
+UNAUTHORIZED_RETRY = 30.0     # Retry WS connect after UNAUTHORIZED
+
+# ── WebSocket ─────────────────────────────────────────────────────────────────
+TIZEN_KEY_DELAY = 0.12        # Inter-key delay in seconds (120 ms)
+TIZEN_KEEPALIVE_INTERVAL = 55.0  # WS keepalive ping interval
+
+# ── WOL ───────────────────────────────────────────────────────────────────────
+WOL_BURST_ROUNDS = 5
+WOL_BURST_STEP = 0.12         # seconds between WOL packets
+
+# ── TV capability detection ───────────────────────────────────────────────────
+# Model prefixes that lack specific capabilities.
+# Matches the Lua TV_CAPS_UNSUPPORTED table in appLaunch.lua.
+#   meta_tag_nav  — platform supports /api/v2/applications/{id} REST polling
+#   has_ghost_api — platform supports ed.installedApp.get via WebSocket
+TV_CAPS_UNSUPPORTED: dict[str, list[str]] = {
+    "meta_tag_nav": ["15_", "16_", "17_", "18_"],
+    "has_ghost_api": ["15_", "16_", "17_"],
+}
+
+# ── App discovery patterns (name substring → logical key) ────────────────────
+APP_NAME_PATTERNS: list[tuple[str, str]] = [
+    ("youtube", "APP_YOUTUBE"),
+    ("netflix", "APP_NETFLIX"),
+    ("spotify", "APP_SPOTIFY"),
+    ("browser", "APP_BROWSER"),
+    ("internet", "APP_BROWSER"),
+]
+
+# Hardcoded fallback IDs used only when the TV returned no app list.
+TIZEN_APPS_FALLBACK: dict[str, str] = {
+    "APP_YOUTUBE": "111299001912",
+    "APP_NETFLIX": "3201907018807",
+    "APP_SPOTIFY": "3201606009684",
+    "APP_BROWSER": "org.tizen.browser",
+}
+
+# App IDs known to be native (app_type 4) — WS launch required even without discovery.
+TIZEN_NATIVE_IDS: frozenset[str] = frozenset(["org.tizen.browser"])
+
+# ── Key names (non-exhaustive reference list) ─────────────────────────────────
+KEY_POWER = "KEY_POWER"
+KEY_VOLUMEUP = "KEY_VOLUMEUP"
+KEY_VOLUMEDOWN = "KEY_VOLUMEDOWN"
+KEY_MUTE = "KEY_MUTE"
+KEY_CHUP = "KEY_CHUP"
+KEY_CHDOWN = "KEY_CHDOWN"
+KEY_UP = "KEY_UP"
+KEY_DOWN = "KEY_DOWN"
+KEY_LEFT = "KEY_LEFT"
+KEY_RIGHT = "KEY_RIGHT"
+KEY_ENTER = "KEY_ENTER"
+KEY_RETURN = "KEY_RETURN"
+KEY_EXIT = "KEY_EXIT"
+KEY_HOME = "KEY_HOME"
+KEY_MENU = "KEY_MENU"
+KEY_SOURCE = "KEY_SOURCE"
+KEY_INFO = "KEY_INFO"
+KEY_TOOLS = "KEY_TOOLS"
+KEY_PLAY = "KEY_PLAY"
+KEY_PAUSE = "KEY_PAUSE"
+KEY_STOP = "KEY_STOP"
+KEY_FF = "KEY_FF"
+KEY_REWIND = "KEY_REWIND"
+KEY_NEXT = "KEY_NEXT"
+KEY_PREV = "KEY_PREV"
+KEY_RED = "KEY_RED"
+KEY_GREEN = "KEY_GREEN"
+KEY_YELLOW = "KEY_YELLOW"
+KEY_BLUE = "KEY_BLUE"
+
+# ── WS event names ────────────────────────────────────────────────────────────
+WS_EVENT_CHANNEL_CONNECT = "ms.channel.connect"
+WS_EVENT_CHANNEL_UNAUTHORIZED = "ms.channel.unauthorized"
+WS_EVENT_CHANNEL_DISCONNECT = "ms.channel.disconnect"
+WS_EVENT_ERROR = "ms.error"
+WS_EVENT_INSTALLED_APP = "ed.installedApp.get"
+WS_METHOD_REMOTE_CONTROL = "ms.remote.control"
+WS_METHOD_CHANNEL_EMIT = "ms.channel.emit"
+
+# ── HA event names (fired on the event bus) ───────────────────────────────────
+EVENT_KEY_SENT = f"{DOMAIN}_key_sent"
+EVENT_APP_LAUNCHED = f"{DOMAIN}_app_launched"
+EVENT_APPS_UPDATED = f"{DOMAIN}_apps_updated"
+
+# ── Service names ─────────────────────────────────────────────────────────────
+SERVICE_SEND_KEY = "send_key"
+SERVICE_LAUNCH_APP = "launch_app"
+SERVICE_ENUMERATE_APPS = "enumerate_apps"
+
+# ── Platforms ─────────────────────────────────────────────────────────────────
+PLATFORMS = ["media_player", "remote"]

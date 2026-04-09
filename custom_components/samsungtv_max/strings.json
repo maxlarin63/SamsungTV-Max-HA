@@ -1,0 +1,28 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Samsung TV Max",
+        "description": "Enter the IP address of your Samsung Smart TV.",
+        "data": {
+          "host": "Host / IP address",
+          "name": "Device name"
+        }
+      },
+      "pair": {
+        "title": "Pair with TV",
+        "description": "Connecting to {host}.\n\nIf a pairing request appears on your TV, select **Allow** and click **Submit**.",
+        "data": {}
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the TV. Check the IP address and that the TV is on.",
+      "unsupported_model": "This TV model is not supported. Only Samsung Tizen (2016+) TVs are compatible.",
+      "unauthorized": "The TV rejected the connection. Please allow the remote access request on the TV screen, then click Submit.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This TV is already configured."
+    }
+  }
+}

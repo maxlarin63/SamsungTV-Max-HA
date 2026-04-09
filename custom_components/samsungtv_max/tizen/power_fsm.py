@@ -21,7 +21,8 @@ States (internal)
 -----------------
 OFF
     No paired remote session; WS closed after transition.  **Off poll** hits
-    ``http://<tv>:8001/api/v2/`` every ``OFF_SLOW_POLL`` s; HTTP 200 →
+    ``http://<tv>:8001/api/v2/`` first after ``OFF_SLOW_POLL_INITIAL_DELAY``, then
+    every ``OFF_SLOW_POLL`` s; HTTP 200 →
     **WAKING_UP** (TV is reachable on the network again).
 
 WAKING_UP

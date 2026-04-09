@@ -39,6 +39,7 @@ from .const import (
     KEY_POWER,
     TIZEN_WS_PORT,
     OFF_SLOW_POLL,
+    OFF_SLOW_POLL_INITIAL_DELAY,
     ON_LIVENESS_INTERVAL,
     ON_LIVENESS_TIMEOUT,
     POWER_PROBE_TIMEOUT,
@@ -361,7 +362,7 @@ class SamsungTVCoordinator:
                 await self._ws.async_close()
             if self._key_sender:
                 self._key_sender.clear()
-            self._schedule_off_slow_poll()
+            self._schedule_off_slow_poll(delay=OFF_SLOW_POLL_INITIAL_DELAY)
 
         elif new_state == PowerState.WAKING_UP:
             self._cancel_all_timers()

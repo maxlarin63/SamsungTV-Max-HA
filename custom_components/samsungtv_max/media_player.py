@@ -87,6 +87,7 @@ class SamsungTVMediaPlayer(MediaPlayerEntity):
         self._remove_listener = self._coordinator.async_add_listener(
             self._handle_coordinator_update
         )
+        await self.async_update_ha_state(True)
 
     async def async_will_remove_from_hass(self) -> None:
         if self._remove_listener:
@@ -100,6 +101,8 @@ class SamsungTVMediaPlayer(MediaPlayerEntity):
 
     @property
     def state(self) -> MediaPlayerState:
+        if self._coordinator.ui_shows_power_on():
+            return MediaPlayerState.ON
         return _POWER_STATE_MAP.get(self._coordinator.power_state, MediaPlayerState.OFF)
 
     @property

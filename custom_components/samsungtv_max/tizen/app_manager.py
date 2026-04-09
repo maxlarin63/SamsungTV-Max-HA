@@ -56,6 +56,10 @@ class AppManager:
         # Logical-key → appId (e.g. "APP_YOUTUBE" → "111299001912")
         self._logical: dict[str, str] = {}
 
+    def set_caps(self, caps: TizenCaps) -> None:
+        """Refresh capability flags after /api/v2/ fills model (deferred setup)."""
+        self._caps = caps
+
     # ── App-list management ───────────────────────────────────────────────────
 
     def update_apps(self, apps: list[dict]) -> None:

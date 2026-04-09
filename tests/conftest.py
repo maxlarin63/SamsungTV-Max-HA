@@ -36,6 +36,7 @@ def mock_hass():
     hass.bus.async_fire = MagicMock()
     hass.config_entries = MagicMock()
     hass.config_entries.async_update_entry = MagicMock()
+    hass.async_create_task = MagicMock()
     return hass
 
 

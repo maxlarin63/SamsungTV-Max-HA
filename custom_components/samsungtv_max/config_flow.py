@@ -2,13 +2,12 @@
 
 Steps
 -----
-1. user     — enter host (IP / hostname)
-2. detect   — probe REST /api/v2/ to confirm Tizen, read model + MAC
-3. pair     — attempt WS connect; if UNAUTHORIZED prompt user to allow on TV, retry
-              (the token is saved automatically when the WS handshake succeeds)
+1. user  — enter IPv4 + name
+2. detect — probe REST /api/v2/ on :8001; if the TV is off or has no MAC in the
+           API response, the entry is created anyway (model/MAC/token filled at runtime)
+3. pair  — only when detection found a MAC: WS on :8002, UNAUTHORIZED form if needed
 
-If the device responds but is not a Tizen TV (no /api/v2/ JSON), the flow
-aborts with error "unsupported_model".
+If the host is wrong (no /api/v2/ JSON), the flow aborts with "unsupported_model".
 """
 
 from __future__ import annotations
@@ -35,6 +34,7 @@ from .const import (
 )
 from .tizen.caps import detect_caps, extract_generation
 from .tizen.ws_client import TizenWSClient
+from .util_mac import normalize_tv_ipv4_host, normalize_wol_mac
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -69,16 +69,23 @@ class SamsungTVMaxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            self._host = user_input[CONF_HOST].strip()
+            raw_host = user_input[CONF_HOST].strip()
             self._name = user_input.get(CONF_NAME, DEFAULT_NAME)
 
-            await self.async_set_unique_id(self._host)
-            self._abort_if_unique_id_configured()
+            ipv4 = normalize_tv_ipv4_host(raw_host)
+            if not ipv4:
+                errors["base"] = "invalid_host"
+            else:
+                self._host = ipv4
+                await self.async_set_unique_id(self._host)
+                self._abort_if_unique_id_configured()
 
-            result = await self._async_detect_tv()
-            if result == "ok":
-                return await self.async_step_pair()
-            errors["base"] = result
+                result = await self._async_detect_tv()
+                if result == "ok":
+                    return await self.async_step_pair()
+                if result in ("cannot_connect", "missing_mac"):
+                    return self._create_entry_before_pairing()
+                errors["base"] = result
 
         return self.async_show_form(
             step_id="user",
@@ -141,7 +148,19 @@ class SamsungTVMaxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         device = data.get("device", {})
         self._model = device.get("modelName", "")
-        self._mac = device.get("wifiMac", "") or device.get("duid", "")
+        self._mac = ""
+        for candidate in (
+            device.get("wifiMac"),
+            device.get("mac"),
+            device.get("wiredMac"),
+            device.get("ethernetMac"),
+        ):
+            if not candidate:
+                continue
+            norm = normalize_wol_mac(str(candidate))
+            if norm:
+                self._mac = norm
+                break
         self._generation = extract_generation(self._model)
 
         # Detect caps early — if model is legacy (16_ etc) we still continue
@@ -150,6 +169,8 @@ class SamsungTVMaxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         _LOGGER.debug(
             "Detected model=%s generation=%s caps=%s", self._model, self._generation, caps
         )
+        if not self._mac:
+            return "missing_mac"
         return "ok"
 
     # ── WS pairing attempt ────────────────────────────────────────────────────
@@ -208,5 +229,18 @@ class SamsungTVMaxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_MAC: self._mac,
                 CONF_GENERATION: self._generation,
                 CONF_TOKEN: self._token,
+            },
+        )
+
+    def _create_entry_before_pairing(self) -> FlowResult:
+        """Finish setup without WS pairing (TV off, no MAC in API, or connect timeout)."""
+        return self.async_create_entry(
+            title=self._name,
+            data={
+                CONF_HOST: self._host,
+                CONF_MODEL: self._model,
+                CONF_MAC: self._mac,
+                CONF_GENERATION: self._generation,
+                CONF_TOKEN: "",
             },
         )

@@ -9,6 +9,13 @@ Token rotation / preservation
 When the TV sends a new token in ms.channel.connect, _handle_new_token()
 persists it immediately to the config entry via async_update_entry so it
 survives restarts and the next connection uses the up-to-date token.
+
+FSM semantics
+-------------
+``PowerState.ON`` means the **WebSocket remote channel is paired**
+(``ms.channel.connect``), not “backlight on”.  See ``tizen/power_fsm.py`` for a
+full description of states, timers, and why HA may disagree with the physical
+screen.
 """
 
 from __future__ import annotations
@@ -24,17 +31,20 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 
 from .const import (
+    CONF_GENERATION,
     CONF_HOST,
     CONF_MAC,
     CONF_MODEL,
     CONF_TOKEN,
     KEY_POWER,
+    TIZEN_WS_PORT,
     OFF_SLOW_POLL,
     ON_LIVENESS_INTERVAL,
     ON_LIVENESS_TIMEOUT,
     POWER_PROBE_TIMEOUT,
     TIZEN_REST_PORT,
     TURNING_OFF_TIMEOUT,
+    UI_OPTIMISTIC_ON_GRACE_SEC,
     UNAUTHORIZED_RETRY,
     WAKING_GIVE_UP,
     WAKING_POLL_INTERVAL,
@@ -42,15 +52,34 @@ from .const import (
     WOL_BURST_STEP,
 )
 from .tizen.app_manager import AppManager
-from .tizen.caps import TizenCaps, detect_caps
+from .tizen.caps import TizenCaps, detect_caps, extract_generation
 from .tizen.key_sender import KeySender
 from .tizen.power_fsm import PowerState
 from .tizen.ws_client import TizenWSClient
+from .util_mac import (
+    directed_broadcast_ipv4,
+    normalize_tv_ipv4_host,
+    normalize_wol_mac,
+)
 
 if TYPE_CHECKING:
     pass
 
 _LOGGER = logging.getLogger(__name__)
+
+WOL_UDP_PORT = 9  # same default as HC3 / wakeonlan; must match TV WoL setting
+
+
+def _execute_wol_round(
+    mac: str, destinations: tuple[tuple[str, int], ...], round_idx: int
+) -> None:
+    """One HC3-style round: TV IP, then global broadcast, then subnet broadcast."""
+    for tgt_idx, (ip, port) in enumerate(destinations, start=1):
+        try:
+            wakeonlan.send_magic_packet(mac, ip_address=ip, port=port)
+            _LOGGER.debug("WOL UDP sent -> %s r%dt%d", ip, round_idx, tgt_idx)
+        except (ValueError, OSError) as err:
+            _LOGGER.debug("WOL -> %s r%dt%d failed: %s", ip, round_idx, tgt_idx, err)
 
 
 class SamsungTVCoordinator:
@@ -88,6 +117,21 @@ class SamsungTVCoordinator:
         self._turning_off_timer: asyncio.TimerHandle | None = None
         self._unauth_timer: asyncio.TimerHandle | None = None
         self._waking_deadline: float = 0.0
+        # Only one wake poll / WS connect attempt at a time (timer cancel does not stop
+        # an already-running _wake_tick coroutine; overlapping ticks caused false timeouts).
+        self._wake_lock = asyncio.Lock()
+        # UI-only: monotonic deadline; FSM unchanged (see ui_shows_power_on).
+        self._ui_on_grace_until: float = 0.0
+
+        if not normalize_tv_ipv4_host(self._host):
+            _LOGGER.warning("TV %r: host must be a numeric IPv4.", self._host)
+        elif not normalize_wol_mac(self._mac):
+            _LOGGER.info(
+                "TV %s: MAC not in config yet (TV off during setup?). "
+                "Model/MAC will load when the TV responds on port %s.",
+                self._host,
+                TIZEN_REST_PORT,
+            )
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -115,7 +159,62 @@ class SamsungTVCoordinator:
 
         self._key_sender = KeySender(self._ws.async_send_key)
 
-        await self._enter_waking_up()
+        # Stay OFF until user turns on or slow poll sees the TV (avoid WAKING_UP at HA boot).
+        self._schedule_off_slow_poll(delay=0.0)
+        _LOGGER.info(
+            "Samsung TV Max [%s]: integration ready; assuming TV off, polling :%s",
+            self._host,
+            TIZEN_REST_PORT,
+        )
+
+    async def _async_merge_device_from_rest(self, payload: dict) -> None:
+        """Persist model/MAC from /api/v2/ JSON when deferred setup left them empty."""
+        device = payload.get("device") or {}
+        new_model = (device.get("modelName") or "").strip() or self._model
+        new_mac = ""
+        for candidate in (
+            device.get("wifiMac"),
+            device.get("mac"),
+            device.get("wiredMac"),
+            device.get("ethernetMac"),
+        ):
+            if not candidate:
+                continue
+            norm = normalize_wol_mac(str(candidate))
+            if norm:
+                new_mac = norm
+                break
+        new_generation = extract_generation(new_model) if new_model else self._generation
+
+        cur = dict(self.entry.data)
+        changed = False
+        if new_mac and new_mac != cur.get(CONF_MAC, ""):
+            cur[CONF_MAC] = new_mac
+            changed = True
+        if new_model and new_model != cur.get(CONF_MODEL, ""):
+            cur[CONF_MODEL] = new_model
+            cur[CONF_GENERATION] = new_generation
+            changed = True
+        elif (
+            new_generation
+            and new_generation != cur.get(CONF_GENERATION, "")
+            and new_model
+        ):
+            cur[CONF_GENERATION] = new_generation
+            changed = True
+
+        if not changed:
+            return
+
+        self.hass.config_entries.async_update_entry(self.entry, data=cur)
+        self._mac = cur.get(CONF_MAC, "")
+        self._model = cur.get(CONF_MODEL, "")
+        self._generation = cur.get(CONF_GENERATION, "")
+        self.caps = detect_caps(self._model)
+        if self._app_manager:
+            self._app_manager.set_caps(self.caps)
+        _LOGGER.info("Loaded TV model/MAC from REST and updated config entry")
+        self._notify_listeners()
 
     async def async_shutdown(self) -> None:
         """Stop timers and close connections.  Called from async_unload_entry."""
@@ -141,20 +240,69 @@ class SamsungTVCoordinator:
         for cb in list(self._listeners):
             cb()
 
+    def _bump_ui_on_grace_deadline(self) -> None:
+        """Extend UI “on” smoothing after turn-on or successful WS pair (not FSM)."""
+        self._ui_on_grace_until = (
+            asyncio.get_event_loop().time() + UI_OPTIMISTIC_ON_GRACE_SEC
+        )
+
+    def ui_shows_power_on(self) -> bool:
+        """True if media_player / remote should show on (may differ briefly from power_state)."""
+        if self.power_state == PowerState.ON:
+            return True
+        if self.power_state in (PowerState.TURNING_OFF, PowerState.UNAUTHORIZED):
+            return False
+        now = asyncio.get_event_loop().time()
+        if now >= self._ui_on_grace_until:
+            return False
+        return self.power_state in (PowerState.WAKING_UP, PowerState.OFF)
+
     # ── Power control (public, called by entities) ───────────────────────────
 
     async def async_turn_on(self) -> None:
-        """Power on: send WOL then enter WAKING_UP."""
+        """Power on: optional WoL (from true OFF), then WAKING_UP / HTTP+WS connect."""
         if self.power_state == PowerState.ON:
             return
-        if self._mac:
-            await self._send_wol()
+        ipv4 = normalize_tv_ipv4_host(self._host)
+        if not ipv4:
+            _LOGGER.warning(
+                "Power on cancelled: host must be a numeric IPv4 for wake polling (got %r).",
+                self._host,
+            )
+            return
+        # WoL only when the FSM thinks the set is fully OFF (NIC likely down).  From
+        # TURNING_OFF / WAKING_UP / UNAUTHORIZED the network often still answers :8001;
+        # spamming magic packets confuses testing and implies the TV woke when UDP merely
+        # left the HA host.
+        use_wol = self.power_state == PowerState.OFF
+        if use_wol:
+            mac = normalize_wol_mac(self._mac)
+            if not mac:
+                _LOGGER.warning(
+                    "Power on cancelled from OFF: valid MAC required for Wake-on-LAN "
+                    "(host=%r, mac_present=%s). Use the TV network MAC from Settings → "
+                    "General → Network.",
+                    self._host,
+                    bool(self._mac.strip()),
+                )
+                return
+            _LOGGER.info("Samsung TV Max [%s]: turn on — WoL burst then HTTP/WS", self._host)
+            await self._send_wol(ipv4, mac)
+        else:
+            _LOGGER.info(
+                "Samsung TV Max [%s]: turn on — HTTP/WS only (no WoL; power was %s)",
+                self._host,
+                self.power_state,
+            )
+        self._bump_ui_on_grace_deadline()
+        self._notify_listeners()
         await self._enter_waking_up()
 
     async def async_turn_off(self) -> None:
         """Power off: send KEY_POWER then enter TURNING_OFF."""
         if self.power_state != PowerState.ON:
             return
+        self._ui_on_grace_until = 0.0
         self.send_key(KEY_POWER)
         await self._set_power_state(PowerState.TURNING_OFF)
 
@@ -186,11 +334,14 @@ class SamsungTVCoordinator:
         if self.power_state == new_state and new_state in (
             PowerState.ON,
             PowerState.OFF,
+            PowerState.WAKING_UP,
+            PowerState.TURNING_OFF,
             PowerState.UNAUTHORIZED,
         ):
             return
 
-        _LOGGER.debug("Power: %s → %s", self.power_state, new_state)
+        prev = self.power_state
+        _LOGGER.info("Samsung TV Max [%s]: power %s → %s", self._host, prev, new_state)
         self.power_state = new_state
 
         # Cancel timers that don't apply to new state
@@ -214,6 +365,11 @@ class SamsungTVCoordinator:
 
         elif new_state == PowerState.WAKING_UP:
             self._cancel_all_timers()
+            # Drop any previous session (e.g. ON → TURNING_OFF → WAKING_UP) so wake polling
+            # always calls async_connect on a clean socket. Otherwise is_connected stays True,
+            # async_connect returns immediately, and ms.channel.connect never fires again.
+            if self._ws:
+                await self._ws.async_close()
 
         elif new_state == PowerState.TURNING_OFF:
             self._cancel_timer("wake")
@@ -223,14 +379,17 @@ class SamsungTVCoordinator:
             self._schedule_turning_off_fallback()
 
         elif new_state == PowerState.UNAUTHORIZED:
+            self._ui_on_grace_until = 0.0
             self._cancel_all_timers()
             self._schedule_unauth_retry()
 
         self._notify_listeners()
 
     async def _enter_waking_up(self) -> None:
+        already_waking = self.power_state == PowerState.WAKING_UP
         await self._set_power_state(PowerState.WAKING_UP)
-        self._waking_deadline = asyncio.get_event_loop().time() + WAKING_GIVE_UP
+        if not already_waking:
+            self._waking_deadline = asyncio.get_event_loop().time() + WAKING_GIVE_UP
         self._schedule_wake_tick(0)
 
     def _schedule_wake_tick(self, delay: float) -> None:
@@ -241,26 +400,79 @@ class SamsungTVCoordinator:
         asyncio.ensure_future(self._wake_tick())
 
     async def _wake_tick(self) -> None:
-        if self.power_state != PowerState.WAKING_UP:
-            return
-        if asyncio.get_event_loop().time() > self._waking_deadline:
-            _LOGGER.debug("Waking up timed out — going OFF")
-            await self._set_power_state(PowerState.OFF)
-            return
-        # Probe the REST API
-        url = f"http://{self._host}:{TIZEN_REST_PORT}/api/v2/"
-        try:
-            async with self._session.get(  # type: ignore[union-attr]
-                url, timeout=aiohttp.ClientTimeout(total=POWER_PROBE_TIMEOUT)
-            ) as resp:
-                if resp.status == 200:
-                    _LOGGER.debug("REST probe OK → connecting WS")
+        async with self._wake_lock:
+            if self.power_state != PowerState.WAKING_UP:
+                return
+            loop_time = asyncio.get_event_loop().time()
+            if loop_time > self._waking_deadline:
+                _LOGGER.warning(
+                    "Samsung TV Max [%s]: wake timed out (%ss) — marking off",
+                    self._host,
+                    int(WAKING_GIVE_UP),
+                )
+                await self._set_power_state(PowerState.OFF)
+                return
+            # Probe the REST API
+            url = f"http://{self._host}:{TIZEN_REST_PORT}/api/v2/"
+            try:
+                async with self._session.get(  # type: ignore[union-attr]
+                    url, timeout=aiohttp.ClientTimeout(total=POWER_PROBE_TIMEOUT)
+                ) as resp:
+                    if resp.status != 200:
+                        _LOGGER.info(
+                            "Samsung TV Max [%s]: wake poll: /api/v2/ HTTP %s (retry)",
+                            self._host,
+                            resp.status,
+                        )
+                        self._schedule_wake_tick(WAKING_POLL_INTERVAL)
+                        return
+                    # TV is reachable on REST; refresh wake budget so a stuck WS handshake
+                    # does not lose to an overlapping tick's stale deadline.
+                    now = asyncio.get_event_loop().time()
+                    self._waking_deadline = max(self._waking_deadline, now + WAKING_GIVE_UP)
+                    try:
+                        data = await resp.json(content_type=None)
+                    except (ValueError, aiohttp.ContentTypeError) as err:
+                        _LOGGER.warning(
+                            "Samsung TV Max [%s]: /api/v2/ JSON error: %s",
+                            self._host,
+                            err,
+                        )
+                    else:
+                        await self._async_merge_device_from_rest(data)
+                    if self.power_state != PowerState.WAKING_UP:
+                        return
+                    _LOGGER.info(
+                        "Samsung TV Max [%s]: TV answers on :%s — opening WebSocket :%s",
+                        self._host,
+                        TIZEN_REST_PORT,
+                        TIZEN_WS_PORT,
+                    )
                     await self._ws.async_connect()  # type: ignore[union-attr]
+                    # Handshake (ms.channel.connect) is async; keep polling until ON or timeout.
+                    if self.power_state == PowerState.ON:
+                        return
+                    self._schedule_wake_tick(WAKING_POLL_INTERVAL)
                     return
-        except Exception:  # noqa: BLE001
-            pass
-        # Not up yet — retry
-        self._schedule_wake_tick(WAKING_POLL_INTERVAL)
+            except TimeoutError:
+                _LOGGER.info(
+                    "Samsung TV Max [%s]: wake poll: /api/v2/ timeout (%ss) — retry",
+                    self._host,
+                    POWER_PROBE_TIMEOUT,
+                )
+            except aiohttp.ClientError as err:
+                _LOGGER.info(
+                    "Samsung TV Max [%s]: wake poll: /api/v2/ error: %s — retry",
+                    self._host,
+                    err,
+                )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.info(
+                    "Samsung TV Max [%s]: wake poll: unexpected %s — retry",
+                    self._host,
+                    err,
+                )
+            self._schedule_wake_tick(WAKING_POLL_INTERVAL)
 
     # ── Liveness (while ON) ───────────────────────────────────────────────────
 
@@ -285,17 +497,18 @@ class SamsungTVCoordinator:
                 return
         except Exception:  # noqa: BLE001
             pass
-        _LOGGER.debug("Liveness probe failed — TV went OFF")
+        _LOGGER.info("Samsung TV Max [%s]: liveness lost — marking off", self._host)
         if self._ws:
             await self._ws.async_close()
         await self._set_power_state(PowerState.OFF)
 
     # ── OFF slow poll (auto-detect TV waking up) ──────────────────────────────
 
-    def _schedule_off_slow_poll(self) -> None:
+    def _schedule_off_slow_poll(self, delay: float | None = None) -> None:
         self._cancel_timer("off_poll")
+        wait = OFF_SLOW_POLL if delay is None else delay
         self._off_poll_timer = self.hass.loop.call_later(
-            OFF_SLOW_POLL, self._off_slow_tick_sync
+            wait, self._off_slow_tick_sync
         )
 
     def _off_slow_tick_sync(self) -> None:
@@ -309,12 +522,45 @@ class SamsungTVCoordinator:
             async with self._session.get(  # type: ignore[union-attr]
                 url, timeout=aiohttp.ClientTimeout(total=POWER_PROBE_TIMEOUT)
             ) as resp:
-                if resp.status == 200:
-                    _LOGGER.debug("OFF poll: TV responded → entering WAKING_UP")
-                    await self._enter_waking_up()
+                if resp.status != 200:
+                    _LOGGER.info(
+                        "Samsung TV Max [%s]: off poll: /api/v2/ HTTP %s (TV offline or busy)",
+                        self._host,
+                        resp.status,
+                    )
+                    self._schedule_off_slow_poll()
                     return
-        except Exception:  # noqa: BLE001
-            pass
+                try:
+                    data = await resp.json(content_type=None)
+                except (ValueError, aiohttp.ContentTypeError) as err:
+                    _LOGGER.warning("Samsung TV Max [%s]: off poll JSON error: %s", self._host, err)
+                else:
+                    await self._async_merge_device_from_rest(data)
+                _LOGGER.info(
+                    "Samsung TV Max [%s]: detected on :%s while off — connecting",
+                    self._host,
+                    TIZEN_REST_PORT,
+                )
+                await self._enter_waking_up()
+                return
+        except TimeoutError:
+            _LOGGER.info(
+                "Samsung TV Max [%s]: off poll: /api/v2/ timeout (%ss)",
+                self._host,
+                POWER_PROBE_TIMEOUT,
+            )
+        except aiohttp.ClientError as err:
+            _LOGGER.info(
+                "Samsung TV Max [%s]: off poll: /api/v2/ error: %s",
+                self._host,
+                err,
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.info(
+                "Samsung TV Max [%s]: off poll: unexpected %s",
+                self._host,
+                err,
+            )
         self._schedule_off_slow_poll()
 
     # ── TURNING_OFF fallback ──────────────────────────────────────────────────
@@ -342,18 +588,59 @@ class SamsungTVCoordinator:
     # ── WS callbacks ─────────────────────────────────────────────────────────
 
     async def _on_ws_connected(self) -> None:
-        _LOGGER.debug("WS connected — TV is ON")
+        _LOGGER.info("Samsung TV Max [%s]: WebSocket paired — TV is on", self._host)
         await self._set_power_state(PowerState.ON)
+        self._bump_ui_on_grace_deadline()
         # Request installed apps if the TV supports it
         if self.caps.has_ghost_api and self._ws:
             await self._ws.async_request_app_list()
 
+    async def _async_ws_reconnect_after_drop(self) -> None:
+        """Reconnect WebSocket after an unexpected drop while power FSM says ON."""
+        await asyncio.sleep(1.0)
+        if self.power_state != PowerState.ON or self._ws is None:
+            return
+        if self._ws.is_connected:
+            return
+        _LOGGER.info(
+            "Samsung TV Max [%s]: reconnecting WebSocket after drop",
+            self._host,
+        )
+        try:
+            await self._ws.async_connect()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning(
+                "Samsung TV Max [%s]: reconnect after drop failed: %s",
+                self._host,
+                err,
+            )
+
     async def _on_ws_disconnected(self, was_unauthorized: bool) -> None:
-        _LOGGER.debug("WS disconnected (unauth=%s, state=%s)", was_unauthorized, self.power_state)
+        _LOGGER.info(
+            "Samsung TV Max [%s]: WebSocket closed (unauthorized=%s, power=%s)",
+            self._host,
+            was_unauthorized,
+            self.power_state,
+        )
         if self.power_state in (PowerState.TURNING_OFF,):
             await self._set_power_state(PowerState.OFF)
         elif was_unauthorized:
+            _LOGGER.warning(
+                "Samsung TV Max [%s]: pairing denied — allow remote access on the TV",
+                self._host,
+            )
             await self._set_power_state(PowerState.UNAUTHORIZED)
+        elif self.power_state == PowerState.WAKING_UP:
+            # :8001 often comes up before :8002 during boot / WOL — retry instead of OFF.
+            _LOGGER.info("Samsung TV Max [%s]: WS dropped during wake — retrying", self._host)
+            self._schedule_wake_tick(WAKING_POLL_INTERVAL)
+        elif self.power_state == PowerState.ON and not was_unauthorized:
+            # Brief TV / network drops are common; stay ON and let liveness confirm real power-off.
+            _LOGGER.info(
+                "Samsung TV Max [%s]: WebSocket dropped while on — scheduling reconnect",
+                self._host,
+            )
+            self.hass.async_create_task(self._async_ws_reconnect_after_drop())
         elif self.power_state not in (PowerState.OFF,):
             await self._set_power_state(PowerState.OFF)
 
@@ -374,7 +661,7 @@ class SamsungTVCoordinator:
 
     async def _handle_new_token(self, token: str) -> None:
         """Persist a newly received token to the config entry immediately."""
-        _LOGGER.debug("Persisting new TV token")
+        _LOGGER.info("Samsung TV Max [%s]: TV access token updated in config", self._host)
         self._token = token
         if self._ws:
             self._ws.update_token(token)
@@ -383,16 +670,36 @@ class SamsungTVCoordinator:
 
     # ── WOL ───────────────────────────────────────────────────────────────────
 
-    async def _send_wol(self) -> None:
-        if not self._mac:
-            return
-        _LOGGER.debug("Sending WOL burst to %s", self._mac)
-        for _ in range(WOL_BURST_ROUNDS):
-            try:
-                wakeonlan.send_magic_packet(self._mac)
-            except Exception as exc:  # noqa: BLE001
-                _LOGGER.debug("WOL error: %s", exc)
+    async def _send_wol(self, ipv4: str, mac: str) -> None:
+        """Send HC3-style WOL bursts; *ipv4* and *mac* are already validated."""
+        # Match Fibaro HC3 QA: each round = TV IP, 255.255.255.255, subnet .255 (port 9).
+        directed = directed_broadcast_ipv4(ipv4)
+        dests: list[tuple[str, int]] = [
+            (ipv4, WOL_UDP_PORT),
+            ("255.255.255.255", WOL_UDP_PORT),
+        ]
+        if directed:
+            dests.append((directed, WOL_UDP_PORT))
+        dest_tuple = tuple(dests)
+
+        summary = ", ".join(ip for ip, _ in dest_tuple)
+        _LOGGER.info(
+            "Samsung TV Max [%s]: WoL %s rounds → %s (UDP only — TV may ignore)",
+            self._host,
+            WOL_BURST_ROUNDS,
+            summary,
+        )
+
+        for round_idx in range(1, WOL_BURST_ROUNDS + 1):
+            await self.hass.async_add_executor_job(
+                _execute_wol_round, mac, dest_tuple, round_idx
+            )
             await asyncio.sleep(WOL_BURST_STEP)
+        _LOGGER.info(
+            "Samsung TV Max [%s]: WoL burst done — if the TV stays dark, check WoL on the "
+            "TV, wired vs wireless MAC, and deep-standby behavior.",
+            self._host,
+        )
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

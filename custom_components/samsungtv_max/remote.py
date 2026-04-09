@@ -24,11 +24,15 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import (
     CONF_GENERATION,
     CONF_HOST,
+    CONF_MAC,
     CONF_MODEL,
+    CONF_TOKEN,
     DOMAIN,
+    INTEGRATION_VERSION,
+    TIZEN_REST_PORT,
+    TIZEN_WS_PORT,
 )
 from .coordinator import SamsungTVCoordinator
-from .tizen.power_fsm import PowerState
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -46,11 +50,9 @@ class SamsungTVRemote(RemoteEntity):
     """Remote entity — the foundation for a full custom TV remote panel.
 
     extra_state_attributes exposes:
-      - apps          full catalog [{id, name, type}] for dynamic button generation
-      - power_state   raw FSM state string
-      - tv_model      model string (generation detection)
-      - tv_generation generation prefix e.g. "19_"
-      - capabilities  {meta_tag_nav, has_ghost_api}
+      - apps, power_state, capabilities (as before)
+      - tv_host, tv_model, tv_generation, tv_mac, tv_token (config entry / pairing)
+      - config_entry_id, integration_version, tizen_rest_port, tizen_ws_port
     """
 
     _attr_has_entity_name = True
@@ -75,6 +77,7 @@ class SamsungTVRemote(RemoteEntity):
         self._remove_listener = self._coordinator.async_add_listener(
             self._handle_coordinator_update
         )
+        await self.async_update_ha_state(True)
 
     async def async_will_remove_from_hass(self) -> None:
         if self._remove_listener:
@@ -88,7 +91,7 @@ class SamsungTVRemote(RemoteEntity):
 
     @property
     def is_on(self) -> bool:
-        return self._coordinator.power_state == PowerState.ON
+        return self._coordinator.ui_shows_power_on()
 
     @property
     def activity_list(self) -> list[str]:
@@ -112,12 +115,19 @@ class SamsungTVRemote(RemoteEntity):
             if a.get("is_visible", True)
         ]
         caps = self._coordinator.caps
+        data = self._entry.data
         return {
             "apps": apps,
             "power_state": str(self._coordinator.power_state),
-            "tv_model": self._entry.data.get(CONF_MODEL, ""),
-            "tv_generation": self._entry.data.get(CONF_GENERATION, ""),
-            "tv_host": self._entry.data.get(CONF_HOST, ""),
+            "tv_host": data.get(CONF_HOST, ""),
+            "tv_model": data.get(CONF_MODEL, ""),
+            "tv_generation": data.get(CONF_GENERATION, ""),
+            "tv_mac": data.get(CONF_MAC, ""),
+            "tv_token": data.get(CONF_TOKEN, ""),
+            "config_entry_id": self._entry.entry_id,
+            "integration_version": INTEGRATION_VERSION,
+            "tizen_rest_port": TIZEN_REST_PORT,
+            "tizen_ws_port": TIZEN_WS_PORT,
             "capabilities": {
                 "meta_tag_nav": caps.meta_tag_nav,
                 "has_ghost_api": caps.has_ghost_api,

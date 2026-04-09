@@ -102,6 +102,12 @@ class TizenWSClient:
             url += f"&token={self._token}"
 
         _LOGGER.debug("WS connecting: %s", url)
+        _LOGGER.info(
+            "Samsung TV Max WS [%s]: connecting to wss://%s:%s/api/v2/channels/samsung.remote.control",
+            self._host,
+            self._host,
+            self._port,
+        )
 
         try:
             ws = await self._session.ws_connect(
@@ -111,14 +117,17 @@ class TizenWSClient:
                 timeout=aiohttp.ClientWSTimeout(ws_close=10),
             )
         except Exception as exc:  # noqa: BLE001
-            _LOGGER.debug("WS connect failed: %s", exc)
+            _LOGGER.warning("Samsung TV Max WS [%s]: connect failed: %s", self._host, exc)
             if self._on_disconnected and not self._closed:
                 asyncio.ensure_future(self._on_disconnected(False))
             return
 
         self._ws = ws
         self._reader_task = asyncio.ensure_future(self._reader_loop(ws))
-        _LOGGER.debug("WS TCP layer up; awaiting TV handshake")
+        _LOGGER.info(
+            "Samsung TV Max WS [%s]: TLS session up, waiting for ms.channel.connect",
+            self._host,
+        )
 
     async def async_close(self) -> None:
         """Gracefully close the WebSocket connection."""
@@ -126,6 +135,10 @@ class TizenWSClient:
         self._stop_keepalive()
         if self._reader_task:
             self._reader_task.cancel()
+            try:
+                await self._reader_task
+            except asyncio.CancelledError:
+                pass
             self._reader_task = None
         if self._ws and not self._ws.closed:
             await self._ws.close()
@@ -243,7 +256,10 @@ class TizenWSClient:
             await self._handle_channel_connect(msg)
 
         elif event == WS_EVENT_CHANNEL_UNAUTHORIZED:
-            _LOGGER.debug("WS: unauthorized — user must allow remote on TV")
+            _LOGGER.warning(
+                "Samsung TV Max WS [%s]: ms.channel.unauthorized — allow this device on the TV",
+                self._host,
+            )
             self._unauthorized = True
             if self._ws and not self._ws.closed:
                 await self._ws.close()

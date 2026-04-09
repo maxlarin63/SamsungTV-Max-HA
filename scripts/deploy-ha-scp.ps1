@@ -4,18 +4,30 @@
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $RepoRoot
+
 $EnvFile  = Join-Path $RepoRoot ".env.ha"
 
-if (-not (Test-Path $EnvFile)) {
-    Write-Error "ERROR: .env.ha not found. Copy .env.ha.example and fill in your values."
+if (-not (Test-Path -LiteralPath $EnvFile)) {
+    Write-Error @"
+.env.ha not found at $EnvFile
+Copy .env.ha.example to .env.ha and fill in values.
+"@
     exit 1
 }
 
 # Load .env.ha
-Get-Content $EnvFile | ForEach-Object {
-    if ($_ -match '^\s*([A-Z_]+)\s*=\s*(.+)$') {
-        [System.Environment]::SetEnvironmentVariable($Matches[1], $Matches[2].Trim(), "Process")
+Get-Content -LiteralPath $EnvFile | ForEach-Object {
+    $line = $_.Trim()
+    if (-not $line -or $line.StartsWith("#")) { return }
+    $eq = $line.IndexOf("=")
+    if ($eq -lt 1) { return }
+    $name = $line.Substring(0, $eq).Trim()
+    $val = $line.Substring($eq + 1).Trim()
+    if (($val.StartsWith('"') -and $val.EndsWith('"')) -or ($val.StartsWith("'") -and $val.EndsWith("'"))) {
+        $val = $val.Substring(1, $val.Length - 2)
     }
+    Set-Item -Path "Env:$name" -Value $val
 }
 
 $HA_HOST = $env:HA_HOST
@@ -33,26 +45,82 @@ $SshOpts = @("-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes")
 if ($HA_SSH_IDENTITY) { $SshOpts += @("-i", $HA_SSH_IDENTITY) }
 
 $Src = Join-Path $RepoRoot "custom_components\samsungtv_max"
-$Dst = "${HA_USER}@${HA_HOST}:/config/custom_components/"
+$TargetParent = "/config/custom_components/"
+$Dst = "${HA_USER}@${HA_HOST}:${TargetParent}"
 
 $ManifestPath = Join-Path $Src "manifest.json"
-$Version = (Get-Content $ManifestPath | ConvertFrom-Json).version
-Write-Host "→ Deploying samsungtv_max v$Version to ${HA_USER}@${HA_HOST}"
+$Version = ""
+if (Test-Path -LiteralPath $ManifestPath) {
+    try {
+        $Version = (Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json).version
+    } catch {
+        $Version = ""
+    }
+}
+$DestDisplay = "${HA_USER}@${HA_HOST}:${TargetParent}samsungtv_max/"
+if ($Version) {
+    Write-Host "Deploying Samsung TV Max v$Version to $DestDisplay"
+} else {
+    Write-Host "Deploying Samsung TV Max to $DestDisplay"
+}
 
 # Ensure remote directory exists
 & ssh @SshOpts "${HA_USER}@${HA_HOST}" "mkdir -p /config/custom_components/samsungtv_max"
 
-# Deploy with scp -r (excludes handled by .scpignore workaround — just copy the folder)
-& scp @SshOpts -r $Src "${Dst}"
+# Stage and deploy (avoid copying __pycache__/pyc, caches, etc.)
+$StageRoot = Join-Path $env:TEMP ("ha_scp_stage_" + [Guid]::NewGuid().ToString("N"))
+$StagePkg = Join-Path $StageRoot "samsungtv_max"
+try {
+    New-Item -ItemType Directory -Path $StagePkg -Force | Out-Null
+    $null = robocopy $Src $StagePkg /E `
+        /XD __pycache__ .pytest_cache .mypy_cache .ruff_cache `
+        /XF *.pyc `
+        /NFL /NDL /NJH /NJS /NC /NS /NP
+    $RobocopyRc = $LASTEXITCODE
+    if ($RobocopyRc -ge 8) {
+        Write-Error "Staging file copy failed (robocopy exit $RobocopyRc)."
+        exit 1
+    }
+
+    & scp @SshOpts -r $StagePkg "${Dst}"
+}
+finally {
+    Remove-Item -LiteralPath $StageRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 if ($LASTEXITCODE -ne 0) { Write-Error "scp failed."; exit 1 }
-Write-Host "✓ Deploy complete."
+Write-Host "OK: Deploy complete."
 
 # Optional restart
-if ($env:HA_HTTP_URL -and $env:HA_TOKEN) {
-    Write-Host "→ Restarting Home Assistant..."
-    $headers = @{ "Authorization" = "Bearer $($env:HA_TOKEN)"; "Content-Type" = "application/json" }
-    Invoke-RestMethod -Uri "$($env:HA_HTTP_URL)/api/services/homeassistant/restart" `
-                      -Method POST -Headers $headers -Body "{}" | Out-Null
-    Write-Host "✓ Restart triggered."
+$HA_HTTP_URL = $env:HA_HTTP_URL
+$HA_TOKEN = $env:HA_TOKEN
+if ($HA_HTTP_URL -and $HA_TOKEN) {
+    $HA_HTTP_URL = $HA_HTTP_URL.TrimEnd("/")
+    $Uri = "$HA_HTTP_URL/api/services/homeassistant/restart"
+    $headers = @{
+        Authorization = "Bearer $HA_TOKEN"
+        "Content-Type" = "application/json"
+    }
+
+    try {
+        Write-Host "Restarting Home Assistant Core via $Uri ..."
+        Invoke-RestMethod -Uri $Uri -Method POST -Headers $headers -Body "{}" | Out-Null
+        Write-Host "OK: Restart requested."
+    } catch {
+        $httpCode = $null
+        if ($_.Exception.Response) {
+            $httpCode = [int]$_.Exception.Response.StatusCode
+        }
+        $msg = $_.Exception.Message
+        $benign = ($httpCode -eq 504 -or $httpCode -eq 502) -or
+            ($msg -match "504|502|Gateway Timeout|Bad Gateway|forcibly closed|Connection reset|underlying connection")
+        if ($benign) {
+            Write-Host "Restart likely started (HA or proxy closed the request while restarting). Give it a minute."
+        } else {
+            Write-Warning "Deploy succeeded but HA restart failed: $msg. Edit HA_HTTP_URL / HA_TOKEN in .env.ha or restart manually."
+            exit 1
+        }
+    }
+} elseif ($HA_HTTP_URL -or $HA_TOKEN) {
+    Write-Warning "Set both HA_HTTP_URL and HA_TOKEN in .env.ha for automatic restart after deploy."
 }

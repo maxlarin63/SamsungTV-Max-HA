@@ -119,6 +119,7 @@ class SamsungTVRemote(RemoteEntity):
         return {
             "apps": apps,
             "power_state": str(self._coordinator.power_state),
+            "tv_awaiting_authorization": self._coordinator.tv_awaiting_authorization,
             "tv_host": data.get(CONF_HOST, ""),
             "tv_model": data.get(CONF_MODEL, ""),
             "tv_generation": data.get(CONF_GENERATION, ""),

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "samsungtv_max"
 DEFAULT_NAME = "Samsung TV"
-INTEGRATION_VERSION = "0.0.21"
+INTEGRATION_VERSION = "0.0.35"
 
 # ── Network ───────────────────────────────────────────────────────────────────
 TIZEN_WS_PORT = 8002          # WebSocket remote control (wss)
@@ -32,8 +32,13 @@ OFF_SLOW_POLL = 10.0              # Interval while TV stays unreachable (was 20s
 POWER_PROBE_TIMEOUT = 0.5   # HTTP timeout for wake + off discovery polls to :8001
 TURNING_OFF_TIMEOUT = 20.0    # Optimistic TURNING_OFF → OFF fallback
 UNAUTHORIZED_RETRY = 30.0     # Retry WS connect after UNAUTHORIZED
+# Wake loop: if REST answers but WebSocket pairing never completes (TV shows allow prompt),
+# log "opening WebSocket" each poll — notify user after this many opens.
+PAIRING_STUCK_WS_OPENS = 5
 # Media player / remote: keep “on” in the UI briefly through FSM dips during boot/reconnect.
 UI_OPTIMISTIC_ON_GRACE_SEC = 4.0
+# After KEY_POWER over WS for REST=standby, re-check socket / power before WoL + wake cycle.
+STANDBY_KEY_WAKE_SETTLE_SEC = 0.35
 
 # ── WebSocket ─────────────────────────────────────────────────────────────────
 TIZEN_KEY_DELAY = 0.12        # Inter-key delay in seconds (120 ms)
@@ -117,6 +122,7 @@ WS_METHOD_CHANNEL_EMIT = "ms.channel.emit"
 EVENT_KEY_SENT = f"{DOMAIN}_key_sent"
 EVENT_APP_LAUNCHED = f"{DOMAIN}_app_launched"
 EVENT_APPS_UPDATED = f"{DOMAIN}_apps_updated"
+EVENT_PAIRING_REQUIRED = f"{DOMAIN}_pairing_required"
 
 # ── Service names ─────────────────────────────────────────────────────────────
 SERVICE_SEND_KEY = "send_key"

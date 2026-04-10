@@ -117,6 +117,7 @@ class SamsungTVMediaPlayer(MediaPlayerEntity):
     def extra_state_attributes(self) -> dict:
         return {
             "power_state": self._coordinator.power_state,
+            "tv_awaiting_authorization": self._coordinator.tv_awaiting_authorization,
             "tv_model": self._entry.data.get(CONF_MODEL, ""),
             "tv_host": self._entry.data.get(CONF_HOST, ""),
         }

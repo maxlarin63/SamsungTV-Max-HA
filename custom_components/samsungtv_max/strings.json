@@ -1,4 +1,14 @@
 {
+  "issues": {
+    "pairing_stuck": {
+      "title": "Samsung TV Max: Approve remote control on the TV",
+      "description": "The TV at {host} is on the network but WebSocket pairing is not completing (repeat connect attempts). On the TV, allow Home Assistant / approve the remote-access prompt — often under General → External device management."
+    },
+    "pairing_denied": {
+      "title": "Samsung TV Max: TV denied remote access",
+      "description": "The TV at {host} rejected the session (ms.channel.unauthorized). Allow this device on the TV. The saved token was cleared; approve again when prompted to store a new one."
+    }
+  },
   "config": {
     "step": {
       "user": {

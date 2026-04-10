@@ -50,7 +50,9 @@ class TestTokenExtraction:
     starts the keepalive task; the HA test plugin detects lingering tasks otherwise.
     """
 
-    async def test_new_token_fires_callback(self, client, callbacks):
+    async def test_new_token_fires_callback(self, mock_session, callbacks):
+        """Client-only token is used only when no session token is stored yet (first pair)."""
+        client = TizenWSClient(mock_session, "192.168.1.50", token="", **callbacks)
         msg = {
             "event": "ms.channel.connect",
             "data": {
@@ -63,6 +65,58 @@ class TestTokenExtraction:
         client._stop_keepalive()  # clean up task started by _handle_channel_connect
         callbacks["on_token_received"].assert_awaited_once_with("new_token_123")
         assert client._token == "new_token_123"
+
+    async def test_prefers_data_token_over_client_token(self, client, callbacks):
+        msg = {
+            "event": "ms.channel.connect",
+            "data": {
+                "clients": [{"attributes": {"token": "client_token"}}],
+                "token": "data_token",
+            },
+        }
+        await client._handle_message(json.dumps(msg))
+        client._stop_keepalive()
+        callbacks["on_token_received"].assert_awaited_once_with("data_token")
+        assert client._token == "data_token"
+
+    async def test_ignores_client_only_when_session_already_stored(self, mock_session, callbacks):
+        """If data.token is missing, do not replace stored session with clients[].token."""
+        client = TizenWSClient(
+            mock_session,
+            "192.168.1.50",
+            token="58374607",
+            **callbacks,
+        )
+        msg = {
+            "event": "ms.channel.connect",
+            "data": {
+                "clients": [{"attributes": {"token": "10051859"}}],
+            },
+        }
+        await client._handle_message(json.dumps(msg))
+        client._stop_keepalive()
+        callbacks["on_token_received"].assert_not_awaited()
+        assert client._token == "58374607"
+
+    async def test_root_data_token_wins_over_client_token(self, callbacks, mock_session):
+        """Session token at data.token must override clients[].attributes.token (Fibaro rule)."""
+        client = TizenWSClient(
+            mock_session,
+            "192.168.1.50",
+            token="10051859",
+            **callbacks,
+        )
+        msg = {
+            "event": "ms.channel.connect",
+            "data": {
+                "clients": [{"attributes": {"token": "10051859"}}],
+                "token": "13109476",
+            },
+        }
+        await client._handle_message(json.dumps(msg))
+        client._stop_keepalive()
+        callbacks["on_token_received"].assert_awaited_once_with("13109476")
+        assert client._token == "13109476"
 
     async def test_same_token_no_callback(self, client, callbacks):
         """No callback if token hasn't changed."""
@@ -80,6 +134,43 @@ class TestTokenExtraction:
         client._stop_keepalive()
         callbacks["on_token_received"].assert_not_awaited()
         callbacks["on_connected"].assert_awaited_once()
+
+    async def test_token_fallback_data_token(self, client, callbacks):
+        msg = {
+            "event": "ms.channel.connect",
+            "data": {"token": "fallback_token_1"},
+        }
+        await client._handle_message(json.dumps(msg))
+        client._stop_keepalive()
+        callbacks["on_token_received"].assert_awaited_once_with("fallback_token_1")
+        assert client._token == "fallback_token_1"
+
+    async def test_token_fallback_data_attributes_token(self, mock_session, callbacks):
+        """attributes.token only used when no data.token and no session token yet."""
+        client = TizenWSClient(mock_session, "192.168.1.50", token="", **callbacks)
+        msg = {
+            "event": "ms.channel.connect",
+            "data": {"attributes": {"token": "fallback_token_2"}},
+        }
+        await client._handle_message(json.dumps(msg))
+        client._stop_keepalive()
+        callbacks["on_token_received"].assert_awaited_once_with("fallback_token_2")
+        assert client._token == "fallback_token_2"
+
+
+class TestConnectUrlEncoding:
+    async def test_token_is_url_encoded(self, mock_session, callbacks):
+        # '+' must be encoded, otherwise TVs may treat it as space and re-prompt pairing.
+        mock_session.ws_connect = AsyncMock(side_effect=Exception("stop"))  # noqa: BLE001
+        client = TizenWSClient(
+            mock_session,
+            "192.168.1.50",
+            token="a+b",
+            **callbacks,
+        )
+        await client.async_connect()
+        called_url = str(mock_session.ws_connect.call_args[0][0])
+        assert "token=a%2Bb" in called_url
 
 
 class TestUnauthorized:

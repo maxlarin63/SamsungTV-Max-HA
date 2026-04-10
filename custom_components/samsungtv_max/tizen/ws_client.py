@@ -5,11 +5,12 @@ WebSocket connection to wss://<host>:8002/api/v2/channels/samsung.remote.control
 
 Token handling
 --------------
-The TV sends the pairing token inside the ms.channel.connect event:
-  data.clients[*].attributes.token
+On ``ms.channel.connect``, newer Tizen sets a **session** token at ``data.token``.
+``data.clients[*].attributes.token`` is often a separate id — the session token must
+be used on the next ``wss://...?token=`` reconnect (Fibaro HC3 behavior).
 
-The token is forwarded to the caller via on_token_received so the coordinator
-can persist it to the config entry (token rotation / preservation).
+The chosen token is forwarded via ``on_token_received`` so the coordinator can
+persist it to the config entry.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ import json
 import logging
 from collections.abc import Callable, Coroutine
 from typing import Any
+from urllib.parse import urlencode
 
 import aiohttp
 
@@ -93,13 +95,15 @@ class TizenWSClient:
         self._unauthorized = False
 
         name_b64 = base64.b64encode(WS_APP_NAME.encode()).decode()
+        params: dict[str, str] = {"name": name_b64}
+        if self._token:
+            # Token can contain characters like '+' which must be URL-encoded.
+            params["token"] = self._token
         url = (
             f"wss://{self._host}:{self._port}"
             f"/api/v2/channels/samsung.remote.control"
-            f"?name={name_b64}"
+            f"?{urlencode(params)}"
         )
-        if self._token:
-            url += f"&token={self._token}"
 
         _LOGGER.debug("WS connecting: %s", url)
         _LOGGER.info(
@@ -272,15 +276,40 @@ class TizenWSClient:
 
     async def _handle_channel_connect(self, msg: dict) -> None:
         """ms.channel.connect — extract token, fire on_connected."""
-        # Token lives in data.clients[*].attributes.token
+        # Fibaro / newer Tizen: ``data.token`` is the session token used on reconnect.
+        # ``clients[*].attributes.token`` is often a *different* id (e.g. 10051859 vs 58374607).
+        # Some firmware omits ``data.token`` on occasional ``ms.channel.connect`` frames; if we
+        # then persist the client token, the next cold ``?token=`` breaks and the TV re-prompts.
         token: str = ""
         try:
-            clients = msg.get("data", {}).get("clients", [])
-            for client in clients:
-                t = client.get("attributes", {}).get("token", "")
-                if t:
-                    token = t
-                    break
+            data = msg.get("data", {}) or {}
+            if isinstance(data, dict):
+                root = data.get("token", "")
+                if isinstance(root, str) and root.strip():
+                    token = root.strip()
+                elif self._token:
+                    # Keep session token; do not downgrade to client/attributes-only fields.
+                    token = self._token
+                else:
+                    clients = data.get("clients", [])
+                    if isinstance(clients, list):
+                        for client in clients:
+                            if not isinstance(client, dict):
+                                continue
+                            attrs = client.get("attributes", {})
+                            if not isinstance(attrs, dict):
+                                continue
+                            t = attrs.get("token", "")
+                            if isinstance(t, str) and t.strip():
+                                token = t.strip()
+                                break
+
+                    if not token:
+                        attrs2 = data.get("attributes", {})
+                        if isinstance(attrs2, dict):
+                            t3 = attrs2.get("token", "")
+                            if isinstance(t3, str) and t3.strip():
+                                token = t3.strip()
         except Exception:  # noqa: BLE001
             pass
 

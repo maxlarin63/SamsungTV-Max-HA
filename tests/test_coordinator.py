@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from custom_components.samsungtv_max.const import PAIRING_STUCK_WS_OPENS
 from custom_components.samsungtv_max.coordinator import SamsungTVCoordinator
 from custom_components.samsungtv_max.tizen.power_fsm import PowerState
 
@@ -107,7 +108,7 @@ class TestWsCallbacks:
 
 
 class TestTurnOnPrerequisites:
-    """Power on must have numeric IPv4 + valid MAC or abort without WOL / wake."""
+    """Turn on needs numeric IPv4. WoL runs whenever MAC is set; OFF+no MAC+no WS aborts."""
 
     async def test_turn_on_without_mac_aborts(self, mock_hass):
         entry = MagicMock()
@@ -195,7 +196,31 @@ class TestTurnOnPrerequisites:
             patch.object(coord, "_enter_waking_up", new_callable=AsyncMock) as wake,
         ):
             await coord.async_turn_on()
-        wol.assert_not_awaited()
+        wol.assert_awaited_once()
+        wake.assert_awaited_once()
+
+    async def test_turn_on_uses_wol_when_rest_says_standby(self, mock_hass):
+        entry = MagicMock()
+        entry.entry_id = "e6"
+        entry.title = "TV"
+        entry.domain = "samsungtv_max"
+        entry.data = {
+            "host": "192.168.1.50",
+            "mac": "AA:BB:CC:DD:EE:FF",
+            "model": "QE55",
+            "generation": "19_",
+            "token": "",
+        }
+        coord = SamsungTVCoordinator(mock_hass, entry)
+        coord.power_state = PowerState.TURNING_OFF
+        coord._last_rest_power_state = "standby"
+        mock_hass.async_add_executor_job = AsyncMock()
+        with (
+            patch.object(coord, "_send_wol", new_callable=AsyncMock) as wol,
+            patch.object(coord, "_enter_waking_up", new_callable=AsyncMock) as wake,
+        ):
+            await coord.async_turn_on()
+        wol.assert_awaited_once()
         wake.assert_awaited_once()
 
     async def test_turn_on_without_mac_still_connects_from_turning_off(self, mock_hass):
@@ -223,6 +248,22 @@ class TestTurnOnPrerequisites:
         wake.assert_awaited_once()
 
 
+class TestTvAwaitingAuthorization:
+    def test_false_when_off(self, coordinator):
+        coordinator.power_state = PowerState.OFF
+        coordinator._wake_ws_open_attempts = 0
+        assert coordinator.tv_awaiting_authorization is False
+
+    def test_true_when_unauthorized(self, coordinator):
+        coordinator.power_state = PowerState.UNAUTHORIZED
+        assert coordinator.tv_awaiting_authorization is True
+
+    def test_true_when_wake_stuck(self, coordinator):
+        coordinator.power_state = PowerState.WAKING_UP
+        coordinator._wake_ws_open_attempts = PAIRING_STUCK_WS_OPENS
+        assert coordinator.tv_awaiting_authorization is True
+
+
 class TestUiOptimisticOn:
     def test_ui_grace_shows_on_for_brief_off(self, mock_hass, mock_config_entry):
         coord = SamsungTVCoordinator(mock_hass, mock_config_entry)
@@ -243,6 +284,11 @@ class TestUiOptimisticOn:
         coord.power_state = PowerState.OFF
         assert coord.ui_shows_power_on() is False
 
+    def test_bump_ui_grace_schedules_expiry_update(self, mock_hass, mock_config_entry):
+        coord = SamsungTVCoordinator(mock_hass, mock_config_entry)
+        coord._bump_ui_on_grace_deadline()
+        mock_hass.loop.call_later.assert_called()
+
 
 class TestSendKey:
     def test_key_blocked_when_not_on(self, coordinator):
@@ -258,3 +304,46 @@ class TestSendKey:
         coordinator._key_sender = ks
         coordinator.send_key("KEY_MUTE", count=2)
         ks.enqueue.assert_called_once_with("KEY_MUTE", 2)
+
+
+class _AsyncContextResp:
+    def __init__(self, status: int, payload: dict | None = None) -> None:
+        self.status = status
+        self._payload = payload or {}
+
+    async def json(self, *, content_type=None):  # noqa: ANN001
+        return self._payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):  # noqa: ANN001
+        return False
+
+
+class TestRestPowerState:
+    async def test_liveness_standby_marks_off(self, coordinator):
+        coordinator.power_state = PowerState.ON
+        coordinator._ws = AsyncMock()
+        coordinator._session = MagicMock()
+        coordinator._session.get = MagicMock(
+            return_value=_AsyncContextResp(200, {"device": {"PowerState": "standby"}})
+        )
+
+        await coordinator._liveness_tick()
+
+        assert coordinator.power_state == PowerState.OFF
+        coordinator._ws.async_close.assert_awaited_once()
+
+    async def test_off_poll_standby_does_not_connect(self, coordinator):
+        coordinator.power_state = PowerState.OFF
+        coordinator._session = MagicMock()
+        coordinator._session.get = MagicMock(
+            return_value=_AsyncContextResp(200, {"device": {"PowerState": "standby"}})
+        )
+
+        with patch.object(coordinator, "_enter_waking_up", new_callable=AsyncMock) as wake:
+            await coordinator._off_slow_tick()
+
+        wake.assert_not_awaited()
+        assert coordinator.power_state == PowerState.OFF

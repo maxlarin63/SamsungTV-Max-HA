@@ -1,0 +1,311 @@
+# Samsung TV Max — Lovelace remote panel (Grid + Button, stock cards only)
+#
+# Layout matches the integration remote: power row, D-pad, transport, app shortcuts.
+# DEBUG: K45 entity IDs + views: wrapper for copy-paste. Power uses remote.toggle.
+#
+# Multiple TVs: add entry_id under each samsungtv_max.launch_app data: if needed.
+#
+# Paste: copy from the views: key below into Raw configuration editor (or merge list item only).
+#
+views:
+  - title: Samsung TV Remote
+    path: samsung-tv-remote
+    icon: mdi:remote-tv
+    type: masonry
+    cards:
+      - type: vertical-stack
+        cards:
+          # ── Row 1: Power & Menu ─────────────────────────────────────────────
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: button
+                entity: &samsungtv_remote remote.samsung_k45_remote
+                name: "ON"
+                icon: mdi:power
+                show_state: true
+                tap_action:
+                  action: call-service
+                  service: remote.toggle
+                  target:
+                    entity_id: *samsungtv_remote
+              - type: button
+                name: Menu
+                icon: mdi:menu
+                tap_action:
+                  action: call-service
+                  service: remote.send_command
+                  target:
+                    entity_id: *samsungtv_remote
+                  data:
+                    command: KEY_MENU
+  
+          # ── Row 2: Vol+ / Mute / CH+ ───────────────────────────────────────
+          - type: grid
+            columns: 3
+            square: false
+            cards:
+              - type: button
+                name: Vol +
+                icon: mdi:volume-plus
+                tap_action:
+                  action: call-service
+                  service: remote.send_command
+                  target:
+                    entity_id: *samsungtv_remote
+                  data:
+                    command: KEY_VOLUP
+              - type: button
+                name: Mute
+                icon: mdi:volume-off
+                tap_action:
+                  action: call-service
+                  service: remote.send_command
+                  target:
+                    entity_id: *samsungtv_remote
+                  data:
+                    command: KEY_MUTE
+              - type: button
+                name: CH up
+                icon: mdi:arrow-up-bold
+                tap_action:
+                  action: call-service
+                  service: remote.send_command
+                  target:
+                    entity_id: *samsungtv_remote
+                  data:
+                    command: KEY_CHUP
+  
+          # ── Row 3: Vol− / Source / CH− ─────────────────────────────────────
+          - type: grid
+            columns: 3
+            square: false
+            cards:
+              - type: button
+                name: Vol −
+                icon: mdi:volume-minus
+                tap_action:
+                  action: call-service
+                  service: remote.send_command
+                  target:
+                    entity_id: *samsungtv_remote
+                  data:
+                    command: KEY_VOLDOWN
+              - type: button
+                name: Source
+                icon: mdi:video-input-hdmi
+                tap_action:
+                  action: call-service
+                  service: remote.send_command
+                  target:
+                    entity_id: *samsungtv_remote
+                  data:
+                    command: KEY_SOURCE
+              - type: button
+                name: CH dn
+                icon: mdi:arrow-down-bold
+                tap_action:
+                  action: call-service
+                  service: remote.send_command
+                  target:
+                    entity_id: *samsungtv_remote
+                  data:
+                    command: KEY_CHDOWN
+  
+          # ── Row 4: Home / Up / Info ────────────────────────────────────────
+          - type: grid
+            columns: 3
+            square: false
+            cards:
+              - type: button
+                name: Home
+                icon: mdi:home
+                tap_action:
+                  action: call-service
+                  service: remote.send_command
+                  target:
+                    entity_id: *samsungtv_remote
+                  data:
+                    command: KEY_HOME
+              - type: button
+                icon: mdi:arrow-up
+                show_name: false
+                tap_action:
+                  action: call-service
+                  service: remote.send_command
+                  target:
+                    entity_id: *samsungtv_remote
+                  data:
+                    command: KEY_UP
+              - type: button
+                name: Info
+                icon: mdi:information
+                tap_action:
+                  action: call-service
+                  service: remote.send_command
+                  target:
+                    entity_id: *samsungtv_remote
+                  data:
+                    command: KEY_INFO
+  
+          # ── Row 5: Left / OK / Right ────────────────────────────────────────
+          - type: grid
+            columns: 3
+            square: false
+            cards:
+              - type: button
+                icon: mdi:arrow-left
+                show_name: false
+                tap_action:
+                  action: call-service
+                  service: remote.send_command
+                  target:
+                    entity_id: *samsungtv_remote
+                  data:
+                    command: KEY_LEFT
+              - type: button
+                name: OK
+                icon: mdi:keyboard-return
+                tap_action:
+                  action: call-service
+                  service: remote.send_command
+                  target:
+                    entity_id: *samsungtv_remote
+                  data:
+                    command: KEY_ENTER
+              - type: button
+                icon: mdi:arrow-right
+                show_name: false
+                tap_action:
+                  action: call-service
+                  service: remote.send_command
+                  target:
+                    entity_id: *samsungtv_remote
+                  data:
+                    command: KEY_RIGHT
+  
+          # ── Row 6: Back / Down / Exit ────────────────────────────────────────
+          - type: grid
+            columns: 3
+            square: false
+            cards:
+              - type: button
+                name: Back
+                icon: mdi:keyboard-backspace
+                tap_action:
+                  action: call-service
+                  service: remote.send_command
+                  target:
+                    entity_id: *samsungtv_remote
+                  data:
+                    command: KEY_RETURN
+              - type: button
+                icon: mdi:arrow-down
+                show_name: false
+                tap_action:
+                  action: call-service
+                  service: remote.send_command
+                  target:
+                    entity_id: *samsungtv_remote
+                  data:
+                    command: KEY_DOWN
+              - type: button
+                name: Exit
+                icon: mdi:close
+                tap_action:
+                  action: call-service
+                  service: remote.send_command
+                  target:
+                    entity_id: *samsungtv_remote
+                  data:
+                    command: KEY_EXIT
+  
+          # ── Row 7: Transport (media player services) ─────────────────────────
+          - type: grid
+            columns: 5
+            square: false
+            cards:
+              - type: button
+                entity: &samsungtv_player media_player.samsung_k45
+                name: Play
+                icon: mdi:play
+                tap_action:
+                  action: call-service
+                  service: media_player.media_play
+                  target:
+                    entity_id: *samsungtv_player
+              - type: button
+                entity: *samsungtv_player
+                name: Pause
+                icon: mdi:pause
+                tap_action:
+                  action: call-service
+                  service: media_player.media_pause
+                  target:
+                    entity_id: *samsungtv_player
+              - type: button
+                entity: *samsungtv_player
+                name: Stop
+                icon: mdi:stop
+                tap_action:
+                  action: call-service
+                  service: media_player.media_stop
+                  target:
+                    entity_id: *samsungtv_player
+              - type: button
+                entity: *samsungtv_player
+                name: Prev
+                icon: mdi:skip-previous
+                tap_action:
+                  action: call-service
+                  service: media_player.media_previous_track
+                  target:
+                    entity_id: *samsungtv_player
+              - type: button
+                entity: *samsungtv_player
+                name: Next
+                icon: mdi:skip-next
+                tap_action:
+                  action: call-service
+                  service: media_player.media_next_track
+                  target:
+                    entity_id: *samsungtv_player
+  
+          # ── Row 8: App shortcuts (launch by display name) ──────────────────
+          - type: grid
+            columns: 4
+            square: false
+            cards:
+              - type: button
+                name: YT
+                icon: mdi:youtube
+                tap_action:
+                  action: call-service
+                  service: samsungtv_max.launch_app
+                  data:
+                    app_name: YouTube
+              - type: button
+                name: Netflix
+                icon: mdi:netflix
+                tap_action:
+                  action: call-service
+                  service: samsungtv_max.launch_app
+                  data:
+                    app_name: Netflix
+              - type: button
+                name: Spotify
+                icon: mdi:spotify
+                tap_action:
+                  action: call-service
+                  service: samsungtv_max.launch_app
+                  data:
+                    app_name: Spotify
+              - type: button
+                name: Web
+                icon: mdi:earth
+                tap_action:
+                  action: call-service
+                  service: samsungtv_max.launch_app
+                  data:
+                    app_name: Browser

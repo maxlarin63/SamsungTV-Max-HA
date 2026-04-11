@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "samsungtv_max"
 DEFAULT_NAME = "Samsung TV"
-INTEGRATION_VERSION = "0.0.35"
+INTEGRATION_VERSION = "0.0.36"
 
 # ── Network ───────────────────────────────────────────────────────────────────
 TIZEN_WS_PORT = 8002          # WebSocket remote control (wss)
@@ -66,6 +66,15 @@ APP_NAME_PATTERNS: list[tuple[str, str]] = [
     ("browser", "APP_BROWSER"),
     ("internet", "APP_BROWSER"),
 ]
+
+# User shortcuts (lowercase) → canonical token for lookup after exact + substring
+# fail on the raw query (e.g. many TVs label the browser app "Internet", not "Browser").
+APP_NAME_ALIASES: dict[str, str] = {
+    "browser": "internet",
+}
+
+# Minimum character length for substring matching (user query in app display name).
+APP_SUBSTRING_QUERY_MIN_LEN = 2
 
 # Hardcoded fallback IDs used only when the TV returned no app list.
 TIZEN_APPS_FALLBACK: dict[str, str] = {

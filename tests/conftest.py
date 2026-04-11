@@ -21,7 +21,12 @@ def sample_apps():
     return [
         {"appId": "111299001912", "name": "YouTube", "app_type": 2, "is_visible": True},
         {"appId": "3201907018807", "name": "Netflix", "app_type": 2, "is_visible": True},
-        {"appId": "3201606009684", "name": "Spotify", "app_type": 2, "is_visible": True},
+        {
+            "appId": "3201606009684",
+            "name": "Spotify - Music and Podcasts",
+            "app_type": 2,
+            "is_visible": True,
+        },
         {"appId": "org.tizen.browser", "name": "Web Browser", "app_type": 4, "is_visible": True},
     ]
 

@@ -20,7 +20,9 @@ from typing import Any
 import aiohttp
 
 from ..const import (
+    APP_NAME_ALIASES,
     APP_NAME_PATTERNS,
+    APP_SUBSTRING_QUERY_MIN_LEN,
     TIZEN_APPS_FALLBACK,
     TIZEN_NATIVE_IDS,
     TIZEN_REST_PORT,
@@ -92,20 +94,53 @@ class AppManager:
     def resolve_app_id(self, name_or_id: str) -> str | None:
         """Return appId for a given display name or appId string.
 
-        Falls back to TIZEN_APPS_FALLBACK if the live list has no match.
+        Resolution order:
+
+        1. Direct app id if it exists in the catalog.
+        2. Case-insensitive **exact** match on the TV's full app name.
+        3. **Substring** (first list order): user query (lowercased) appears in the app name.
+        4. **Alias** map (e.g. *browser* → *internet*), then repeat exact + substring on the
+           canonical token.
+        5. Logical keys from pattern scan (e.g. ``APP_NETFLIX``).
+        6. ``TIZEN_APPS_FALLBACK`` for bare logical keys when the list was empty.
         """
-        # Direct ID lookup
         if name_or_id in self._by_id:
             return name_or_id
-        # Case-insensitive name match
-        app = self._by_name.get(name_or_id.lower())
+
+        norm = name_or_id.strip().lower()
+        if not norm:
+            return TIZEN_APPS_FALLBACK.get(name_or_id)
+
+        app = self._by_name.get(norm)
         if app:
             return app["appId"]
-        # Logical key (e.g. "APP_NETFLIX")
+
+        sid = self._first_substring_match(norm)
+        if sid:
+            return sid
+
+        canonical = APP_NAME_ALIASES.get(norm)
+        if canonical:
+            app = self._by_name.get(canonical)
+            if app:
+                return app["appId"]
+            sid = self._first_substring_match(canonical)
+            if sid:
+                return sid
+
         if name_or_id in self._logical:
             return self._logical[name_or_id]
-        # Fallback
+
         return TIZEN_APPS_FALLBACK.get(name_or_id)
+
+    def _first_substring_match(self, needle: str) -> str | None:
+        """First installed app whose display name contains *needle* (case-insensitive)."""
+        if len(needle) < APP_SUBSTRING_QUERY_MIN_LEN:
+            return None
+        for app in self._apps:
+            if needle in app["name"].lower():
+                return app["appId"]
+        return None
 
     # ── Launch ────────────────────────────────────────────────────────────────
 

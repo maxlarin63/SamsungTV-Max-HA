@@ -38,6 +38,32 @@ class TestAppResolution:
         m, _ = manager
         assert m.resolve_app_id("NonExistentApp") is None
 
+    def test_resolve_spotify_short_label_substring(self, manager):
+        """Short user label contained in the TV's long Spotify title."""
+        m, _ = manager
+        assert m.resolve_app_id("Spotify") == "3201606009684"
+
+    def test_resolve_browser_substring_in_web_browser_title(self, manager):
+        m, _ = manager
+        assert m.resolve_app_id("Browser") == "org.tizen.browser"
+
+    def test_resolve_browser_alias_when_tv_names_internet(self) -> None:
+        """Alias browser → internet when the catalog uses *Internet* (K45-style)."""
+        ws_launch = AsyncMock(return_value=True)
+        caps = TizenCaps()
+        m = AppManager(MagicMock(), "192.168.1.50", caps, ws_launch_fn=ws_launch)
+        m.update_apps(
+            [
+                {
+                    "appId": "org.tizen.browser",
+                    "name": "Internet",
+                    "app_type": 4,
+                    "is_visible": True,
+                },
+            ]
+        )
+        assert m.resolve_app_id("Browser") == "org.tizen.browser"
+
     def test_fallback_for_netflix(self):
         """When app list is empty, fallback IDs are used."""
         ws_launch = AsyncMock(return_value=True)

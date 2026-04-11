@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.samsungtv_max.const import PAIRING_STUCK_WS_OPENS
+from custom_components.samsungtv_max.const import KEY_POWER, PAIRING_STUCK_WS_OPENS
 from custom_components.samsungtv_max.coordinator import SamsungTVCoordinator
 from custom_components.samsungtv_max.tizen.power_fsm import PowerState
 
@@ -347,3 +347,50 @@ class TestRestPowerState:
 
         wake.assert_not_awaited()
         assert coordinator.power_state == PowerState.OFF
+
+
+class TestTurnOffRestReconcile:
+    """Turn off: REST standby vs FSM ON — align without KEY_POWER (modern TVs with PowerState)."""
+
+    async def test_turn_off_standby_aligns_without_key(self, coordinator):
+        coordinator.power_state = PowerState.ON
+        coordinator._ws = AsyncMock()
+        with (
+            patch.object(
+                coordinator, "_async_probe_rest_power_state", new_callable=AsyncMock
+            ) as probe,
+            patch.object(coordinator, "send_key") as send_key,
+        ):
+            probe.return_value = "standby"
+            await coordinator.async_turn_off()
+        send_key.assert_not_called()
+        assert coordinator.power_state == PowerState.OFF
+        coordinator._ws.async_close.assert_awaited_once()
+
+    async def test_turn_off_non_standby_sends_key(self, coordinator):
+        coordinator.power_state = PowerState.ON
+        coordinator._ws = AsyncMock()
+        with (
+            patch.object(
+                coordinator, "_async_probe_rest_power_state", new_callable=AsyncMock
+            ) as probe,
+            patch.object(coordinator, "send_key") as send_key,
+        ):
+            probe.return_value = "on"
+            await coordinator.async_turn_off()
+        send_key.assert_called_once_with(KEY_POWER)
+        assert coordinator.power_state == PowerState.TURNING_OFF
+
+    async def test_turn_off_probe_none_still_sends_key(self, coordinator):
+        coordinator.power_state = PowerState.ON
+        coordinator._ws = AsyncMock()
+        with (
+            patch.object(
+                coordinator, "_async_probe_rest_power_state", new_callable=AsyncMock
+            ) as probe,
+            patch.object(coordinator, "send_key") as send_key,
+        ):
+            probe.return_value = None
+            await coordinator.async_turn_off()
+        send_key.assert_called_once()
+        assert coordinator.power_state == PowerState.TURNING_OFF

@@ -41,3 +41,11 @@ Any edit that changes **deployable** artifacts **must** include a **SemVer bump 
 
 If the answer to the first is yes and the second is no, the task is **not done**.
 
+## Commit messages (when a version bump is included)
+
+Use a **short** subject line: start with **`vMAJOR.MINOR.PATCH,`** then the rest of the summary (what changed).
+
+**Prefer:** `v0.0.37, fix REST standby alignment on turn off`
+
+**Avoid:** `Update Samsung TV Max integration to version 0.0.37, fix REST standby alignment on turn off`
+

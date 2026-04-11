@@ -2,9 +2,26 @@
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_fixture_setup(fixturedef, request):  # noqa: ANN001
+    """Re-enable sockets before the asyncio ``event_loop`` fixture runs on Windows.
+
+    ``pytest-homeassistant-custom-component`` calls ``pytest_socket.disable_socket()`` in
+    ``pytest_runtest_setup``, before fixtures run. Both Proactor and Selector loops need
+    ``socket.socketpair()`` for the self-pipe; unblocking only for ``event_loop`` keeps
+    the intent of pytest-socket for test bodies. Linux/macOS unchanged.
+    """
+    if sys.platform == "win32" and getattr(fixturedef, "argname", None) == "event_loop":
+        import pytest_socket
+
+        pytest_socket.enable_socket()
+    yield
 
 
 @pytest.fixture

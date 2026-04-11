@@ -98,7 +98,9 @@ The `remote.samsungtv_max_*` entity exposes the full app catalog and TV state in
 
 ## Development
 
-Open `samsungtv-max-ha.code-workspace` in Cursor or VS Code.
+Open `samsungtv-max-ha.code-workspace` in Cursor or VS Code (or open this folder — `.vscode/settings.json` applies the same interpreter and pytest options).
+
+After a cold reboot, the workspace uses `.venv` automatically: **Python: Select Interpreter** should point at `.venv\\Scripts\\python.exe` (Windows) or `.venv/bin/python` (Linux/macOS — change the path in **User** settings if you are not on Windows). New integrated terminals activate that venv.
 
 ### Setup
 

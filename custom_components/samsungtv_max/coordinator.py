@@ -41,16 +41,16 @@ from .const import (
     DOMAIN,
     EVENT_PAIRING_REQUIRED,
     KEY_POWER,
-    TIZEN_WS_PORT,
     OFF_SLOW_POLL,
     OFF_SLOW_POLL_INITIAL_DELAY,
     ON_LIVENESS_INTERVAL,
     ON_LIVENESS_TIMEOUT,
     PAIRING_STUCK_WS_OPENS,
     POWER_PROBE_TIMEOUT,
-    TIZEN_REST_PORT,
-    TURNING_OFF_TIMEOUT,
     STANDBY_KEY_WAKE_SETTLE_SEC,
+    TIZEN_REST_PORT,
+    TIZEN_WS_PORT,
+    TURNING_OFF_TIMEOUT,
     UI_OPTIMISTIC_ON_GRACE_SEC,
     UNAUTHORIZED_RETRY,
     WAKING_GIVE_UP,
@@ -505,13 +505,27 @@ class SamsungTVCoordinator:
         await self._enter_waking_up()
 
     async def async_turn_off(self) -> None:
-        """Power off: send KEY_POWER then enter TURNING_OFF."""
+        """Power off: send KEY_POWER then enter TURNING_OFF.
+
+        If ``/api/v2/`` reports ``device.PowerState`` = standby while the FSM is still ON
+        (e.g. panel was turned off via IR first), align to OFF without sending KEY_POWER so
+        we do not toggle the TV back on. TVs without PowerState in REST behave as before.
+        """
         if self.power_state != PowerState.ON:
             return
         self._ui_on_grace_until = 0.0
         if self._ui_grace_timer:
             self._ui_grace_timer.cancel()
             self._ui_grace_timer = None
+        rest_power = await self._async_probe_rest_power_state()
+        if rest_power == "standby":
+            _LOGGER.info(
+                "Samsung TV Max [%s]: turn off — REST=standby while FSM ON; aligning off "
+                "without KEY_POWER",
+                self._host,
+            )
+            await self._set_power_state(PowerState.OFF)
+            return
         self.send_key(KEY_POWER)
         await self._set_power_state(PowerState.TURNING_OFF)
 

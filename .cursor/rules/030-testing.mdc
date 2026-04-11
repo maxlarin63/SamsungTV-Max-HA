@@ -12,6 +12,8 @@ alwaysApply: false
 - `pytest-socket` to block unintended network access
 - `unittest.mock` (AsyncMock, MagicMock, patch)
 
+On **Windows**, `tests/conftest.py` uses a `pytest_fixture_setup` hookwrapper so `pytest_socket.enable_socket()` runs immediately before the `event_loop` fixture — `pytest-homeassistant-custom-component` disables sockets before fixtures run, which would otherwise break asyncio’s self-pipe. Linux/macOS are unaffected.
+
 ## Test layout mirrors source
 ```
 tests/

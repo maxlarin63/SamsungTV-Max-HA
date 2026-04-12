@@ -41,11 +41,18 @@ Any edit that changes **deployable** artifacts **must** include a **SemVer bump 
 
 If the answer to the first is yes and the second is no, the task is **not done**.
 
-## Commit messages (when a version bump is included)
+## Commit messages (required whenever this change set bumps the version)
 
-Use a **short** subject line: start with **`vMAJOR.MINOR.PATCH,`** then the rest of the summary (what changed).
+**Subject line — MUST match all of:**
 
-**Prefer:** `v0.0.37, fix REST standby alignment on turn off`
+1. **Starts with** exactly `v` + SemVer + comma + space: `vMAJOR.MINOR.PATCH, ` (no space after `v`; space only after the comma).
+2. **Then** a short summary of what changed (do **not** repeat “Samsung TV Max”, “integration”, or “version X.Y.Z” in the subject — the `v…` prefix is enough).
 
-**Avoid:** `Update Samsung TV Max integration to version 0.0.37, fix REST standby alignment on turn off`
+**Subject line — MUST NOT use** as the opening: `Update Samsung TV Max`, `Update … integration`, `Bump version`, `Release`, or any lead-in other than `vMAJOR.MINOR.PATCH, `.
+
+**Valid:** `v0.0.38, dedupe OFF slow-poll timeout logs`
+
+**Invalid:** `Update Samsung TV Max integration to version 0.0.38, dedupe OFF slow-poll timeout logs`
+
+Optional body: bullets or details below the subject; keep the subject one line.
 

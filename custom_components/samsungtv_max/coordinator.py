@@ -138,6 +138,8 @@ class SamsungTVCoordinator:
         # Repeated WS open during WAKING_UP usually means TV is showing allow / pairing prompt.
         self._wake_ws_open_attempts: int = 0
         self._pairing_stuck_notified: bool = False
+        # OFF slow poll: log /api/v2/ timeout at INFO once per streak (TV unreachable).
+        self._off_poll_timeout_logged: bool = False
 
         if not normalize_tv_ipv4_host(self._host):
             _LOGGER.warning("TV %r: host must be a numeric IPv4.", self._host)
@@ -779,6 +781,7 @@ class SamsungTVCoordinator:
             async with self._session.get(  # type: ignore[union-attr]
                 url, timeout=aiohttp.ClientTimeout(total=POWER_PROBE_TIMEOUT)
             ) as resp:
+                self._off_poll_timeout_logged = False
                 if resp.status != 200:
                     _LOGGER.info(
                         "Samsung TV Max [%s]: off poll: /api/v2/ HTTP %s (TV offline or busy)",
@@ -810,18 +813,22 @@ class SamsungTVCoordinator:
                 await self._enter_waking_up()
                 return
         except TimeoutError:
-            _LOGGER.info(
-                "Samsung TV Max [%s]: off poll: /api/v2/ timeout (%ss)",
-                self._host,
-                POWER_PROBE_TIMEOUT,
-            )
+            if not self._off_poll_timeout_logged:
+                self._off_poll_timeout_logged = True
+                _LOGGER.info(
+                    "Samsung TV Max [%s]: off poll: /api/v2/ timeout (%ss)",
+                    self._host,
+                    POWER_PROBE_TIMEOUT,
+                )
         except aiohttp.ClientError as err:
+            self._off_poll_timeout_logged = False
             _LOGGER.info(
                 "Samsung TV Max [%s]: off poll: /api/v2/ error: %s",
                 self._host,
                 err,
             )
         except Exception as err:  # noqa: BLE001
+            self._off_poll_timeout_logged = False
             _LOGGER.info(
                 "Samsung TV Max [%s]: off poll: unexpected %s",
                 self._host,

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 from collections.abc import Callable, Coroutine
@@ -139,10 +140,8 @@ class TizenWSClient:
         self._stop_keepalive()
         if self._reader_task:
             self._reader_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._reader_task
-            except asyncio.CancelledError:
-                pass
             self._reader_task = None
         if self._ws and not self._ws.closed:
             await self._ws.close()

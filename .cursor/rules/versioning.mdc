@@ -1,11 +1,6 @@
 ---
 description: MUST bump Samsung TV Max version when deployable files change (strict)
-globs:
-  [
-    "custom_components/samsungtv_max/**",
-    "scripts/deploy-ha-scp.ps1",
-    "scripts/deploy-ha-rsync.sh",
-  ]
+globs: ["**/*"]
 alwaysApply: true
 ---
 
@@ -54,5 +49,12 @@ If the answer to the first is yes and the second is no, the task is **not done**
 
 **Invalid:** `Update Samsung TV Max integration to version 0.0.38, dedupe OFF slow-poll timeout logs`
 
-Optional body: bullets or details below the subject; keep the subject one line.
+**Optional body** (bullets below the subject; keep the subject one line): describe **functional** or **user-visible** changes only.
+
+**Commit body — MUST NOT** include boilerplate about the mandatory version bump, for example:
+
+- `Incremented integration version in const.py and manifest.json.`
+- Same idea in other words (`version bump`, `updated manifest.json` / `const.py` only for SemVer).
+
+The **`vMAJOR.MINOR.PATCH` prefix in the subject** already signals the release version; do **not** repeat that housekeeping in the body.
 

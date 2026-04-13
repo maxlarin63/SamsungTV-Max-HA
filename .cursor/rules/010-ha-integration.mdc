@@ -1,7 +1,7 @@
 ---
 description: Home Assistant integration patterns for samsungtv_max
-globs: ["custom_components/**/*.py"]
-alwaysApply: false
+globs: ["**/*"]
+alwaysApply: true
 ---
 
 # HA Integration Patterns

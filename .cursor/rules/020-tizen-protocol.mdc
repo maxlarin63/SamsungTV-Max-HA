@@ -1,7 +1,7 @@
 ---
 description: Samsung Tizen TV protocol details — WebSocket, REST, power FSM, app management
-globs: ["custom_components/samsungtv_max/tizen/**/*.py", "custom_components/samsungtv_max/coordinator.py"]
-alwaysApply: false
+globs: ["**/*"]
+alwaysApply: true
 ---
 
 # Tizen Protocol Reference

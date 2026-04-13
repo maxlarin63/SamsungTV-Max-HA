@@ -1,7 +1,7 @@
 ---
 description: Test conventions for samsungtv_max
-globs: ["tests/**/*.py"]
-alwaysApply: false
+globs: ["**/*"]
+alwaysApply: true
 ---
 
 # Test Conventions

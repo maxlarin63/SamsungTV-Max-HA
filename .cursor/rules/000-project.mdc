@@ -1,10 +1,14 @@
 ---
 description: Samsung TV Max HA integration — project overview and conventions
-globs: ["**/*.py", "**/*.json", "**/*.yaml", "**/*.md"]
+globs: ["**/*"]
 alwaysApply: true
 ---
 
 # Samsung TV Max — Project Context
+
+## Cursor rules (mandatory)
+Follow **every** `.cursor/rules/*.mdc` file in this repository for all work here. Do not treat `010-*`, `020-*`, or `030-*` as optional or context-dependent; they are **alwaysApply** alongside this file and `versioning.mdc`.
+
 
 ## What this is
 A Home Assistant custom integration (`samsungtv_max`) for Samsung Tizen Smart TVs.

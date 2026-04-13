@@ -331,11 +331,11 @@ views:
           # ── Row 9: Keyboard text input (visible when TV text field focused) ─
           # Requires: input_text.tv_text_input helper + script.tv_send_text (see header).
           # Type a URL or search term, tap Send — script sends text and clears the field.
+          # The binary_sensor turns on/off with ms.remote.imeStart / imeEnd.
           - type: conditional
             conditions:
-              - entity: remote.samsung_k45_remote
-                attribute: keyboard_active
-                state: "true"
+              - entity: binary_sensor.samsung_k45_keyboard_active
+                state: "on"
             card:
               type: vertical-stack
               cards:

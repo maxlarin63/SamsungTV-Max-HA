@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "samsungtv_max"
 DEFAULT_NAME = "Samsung TV"
-INTEGRATION_VERSION = "0.0.41"
+INTEGRATION_VERSION = "0.0.42"
 
 # ── Network ───────────────────────────────────────────────────────────────────
 TIZEN_WS_PORT = 8002          # WebSocket remote control (wss)
@@ -149,4 +149,4 @@ SERVICE_ENUMERATE_APPS = "enumerate_apps"
 SERVICE_SEND_TEXT = "send_text"
 
 # ── Platforms ─────────────────────────────────────────────────────────────────
-PLATFORMS = ["media_player", "remote"]
+PLATFORMS = ["binary_sensor", "media_player", "remote"]

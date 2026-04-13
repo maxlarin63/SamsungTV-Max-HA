@@ -18,10 +18,13 @@ Migrated from a FIBARO HC3 Quick App (Lua, v0.4.101).
 | App enumeration | `ed.installedApp.get` WS message → `source_list` + remote `activity_list` |
 | App launch | REST POST (downloaded apps) / WS deep-link (native apps) |
 | Key sending | `ms.remote.control` via WS; 120 ms inter-key queue |
+| Browser touch mode | `ms.remote.touchEnable` → d-pad keys auto-redirect to pointer moves/clicks (HC3 parity) |
+| Text input (IME) | `send_text` service types into the focused on-screen field (URL bar, search box) |
+| Keyboard active sensor | `binary_sensor` turns on when the TV text field is focused (`ms.remote.imeStart`) |
 | TV generation detection | Model prefix → capability flags (`meta_tag_nav`, `has_ghost_api`) |
 | Token rotation | Token from `ms.channel.connect` persisted to config entry immediately |
 | Volume / mute | `KEY_VOLUMEUP`, `KEY_VOLUMEDOWN`, `KEY_MUTE` |
-| Custom services | `send_key`, `launch_app`, `enumerate_apps` |
+| Custom services | `send_key`, `launch_app`, `enumerate_apps`, `send_text` |
 | Remote entity | Full `activity_list` + rich `extra_state_attributes` (app catalog, caps, generation) |
 | Protocol | Tizen WebSocket only (wss :8002) |
 
@@ -77,6 +80,26 @@ service: samsungtv_max.enumerate_apps
 ```
 Fires `samsungtv_max_apps_updated` event on the HA event bus when complete.
 
+### `samsungtv_max.send_text`
+```yaml
+service: samsungtv_max.send_text
+data:
+  text: "https://www.google.com"
+```
+Types text into the focused on-screen input field (browser URL bar, search box).
+Works when the TV signals `ms.remote.imeStart` — the `binary_sensor.*_keyboard_active`
+entity turns on to indicate a text field is focused.
+
+---
+
+## Entities
+
+| Platform | Entity example | Description |
+|---|---|---|
+| `remote` | `remote.samsung_*_remote` | Power, key sending, app launch; rich `extra_state_attributes` (apps, caps, `keyboard_active`) |
+| `media_player` | `media_player.samsung_*` | Power, volume, source select, transport controls |
+| `binary_sensor` | `binary_sensor.samsung_*_keyboard_active` | On when the TV has a text field focused (browser URL bar, search). Use in dashboard conditional cards. |
+
 ---
 
 ## Remote entity
@@ -88,11 +111,50 @@ The `remote.samsungtv_max_*` entity exposes the full app catalog and TV state in
 {
   "apps": [{"id": "111299001912", "name": "YouTube", "type": 2}],
   "power_state": "on",
+  "keyboard_active": false,
   "tv_model": "QE55Q80RATXXH",
   "tv_generation": "modern",
   "capabilities": {"meta_tag_nav": true, "has_ghost_api": true}
 }
 ```
+
+---
+
+## Dashboard setup
+
+A stock Lovelace remote panel is provided in [`docs/lovelace_remote_view.yaml`](docs/lovelace_remote_view.yaml).
+See [`docs/lovelace-remote-dashboard.md`](docs/lovelace-remote-dashboard.md) for full setup steps.
+
+### Text input prerequisites
+
+The dashboard includes a conditional text-input row that appears when the TV's browser (or any app) focuses a text field. To use it, create these two HA objects before pasting the dashboard YAML:
+
+**1. Helper — `input_text.tv_text_input`**
+
+Settings → Devices & Services → Helpers → Create Helper → **Text**
+- Name: **TV Text Input**
+- Max length: 255 (default)
+
+**2. Script — `script.tv_send_text`**
+
+Settings → Automations & Scenes → Scripts → Add Script → switch to YAML mode:
+
+```yaml
+alias: TV Send Text
+sequence:
+  - service: samsungtv_max.send_text
+    data:
+      text: "{{ states('input_text.tv_text_input') }}"
+  - service: input_text.set_value
+    target:
+      entity_id: input_text.tv_text_input
+    data:
+      value: ""
+```
+
+When the TV focuses a text field, `binary_sensor.*_keyboard_active` turns on, the
+text-input row slides into the dashboard, and `ms.remote.imeUpdate` pre-fills it with
+the current field content (e.g. the URL already in the address bar).
 
 ---
 

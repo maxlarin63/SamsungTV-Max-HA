@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "samsungtv_max"
 DEFAULT_NAME = "Samsung TV"
-INTEGRATION_VERSION = "0.0.40"
+INTEGRATION_VERSION = "0.0.41"
 
 # ── Network ───────────────────────────────────────────────────────────────────
 TIZEN_WS_PORT = 8002          # WebSocket remote control (wss)
@@ -129,6 +129,8 @@ WS_EVENT_ERROR = "ms.error"
 WS_EVENT_INSTALLED_APP = "ed.installedApp.get"
 WS_EVENT_TOUCH_ENABLE = "ms.remote.touchEnable"
 WS_EVENT_TOUCH_DISABLE = "ms.remote.touchDisable"
+WS_EVENT_IME_START = "ms.remote.imeStart"
+WS_EVENT_IME_END = "ms.remote.imeEnd"
 WS_METHOD_REMOTE_CONTROL = "ms.remote.control"
 WS_METHOD_CHANNEL_EMIT = "ms.channel.emit"
 
@@ -137,11 +139,14 @@ EVENT_KEY_SENT = f"{DOMAIN}_key_sent"
 EVENT_APP_LAUNCHED = f"{DOMAIN}_app_launched"
 EVENT_APPS_UPDATED = f"{DOMAIN}_apps_updated"
 EVENT_PAIRING_REQUIRED = f"{DOMAIN}_pairing_required"
+EVENT_IME_START = f"{DOMAIN}_ime_start"
+EVENT_IME_END = f"{DOMAIN}_ime_end"
 
 # ── Service names ─────────────────────────────────────────────────────────────
 SERVICE_SEND_KEY = "send_key"
 SERVICE_LAUNCH_APP = "launch_app"
 SERVICE_ENUMERATE_APPS = "enumerate_apps"
+SERVICE_SEND_TEXT = "send_text"
 
 # ── Platforms ─────────────────────────────────────────────────────────────────
 PLATFORMS = ["media_player", "remote"]

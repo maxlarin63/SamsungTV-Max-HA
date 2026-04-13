@@ -166,6 +166,7 @@ class SamsungTVCoordinator:
             on_disconnected=self._on_ws_disconnected,
             on_apps_received=self._on_apps_received,
             on_token_received=self._handle_new_token,
+            on_keyboard_changed=self._on_keyboard_changed,
         )
 
         self._app_manager = AppManager(
@@ -553,6 +554,23 @@ class SamsungTVCoordinator:
             if cur is None or self.power_state != PowerState.ON:
                 return
             await cur.async_send_key(key)
+
+    @property
+    def keyboard_active(self) -> bool:
+        """True when the TV has a text field focused (ms.remote.imeStart)."""
+        return self._ws is not None and self._ws.keyboard_active
+
+    async def async_send_text(self, text: str) -> bool:
+        """Send text to the focused on-screen input field (browser URL bar, search, etc.).
+
+        Returns False if the TV is not ON, WS is not connected, or the send fails.
+        """
+        if self._ws is None or self.power_state != PowerState.ON:
+            return False
+        ok = await self._ws.async_send_input_string(text)
+        if ok:
+            await self._ws.async_send_input_end()
+        return ok
 
     async def async_launch_app(self, name_or_id: str) -> bool:
         """Launch an app by name or ID; returns False if not possible."""
@@ -943,6 +961,11 @@ class SamsungTVCoordinator:
             f"{self.entry.domain}_apps_updated",
             {"entry_id": self.entry.entry_id, "count": len(self.apps)},
         )
+
+    async def _on_keyboard_changed(self, active: bool) -> None:
+        """IME state changed — refresh entity attributes so dashboard conditionals react."""
+        _LOGGER.debug("Samsung TV Max [%s]: keyboard_active → %s", self._host, active)
+        self._notify_listeners()
 
     # ── Token rotation / preservation ─────────────────────────────────────────
 

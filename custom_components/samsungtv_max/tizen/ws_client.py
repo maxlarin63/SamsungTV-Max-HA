@@ -40,6 +40,8 @@ from ..const import (
     WS_EVENT_CHANNEL_CONNECT,
     WS_EVENT_CHANNEL_DISCONNECT,
     WS_EVENT_CHANNEL_UNAUTHORIZED,
+    WS_EVENT_IME_END,
+    WS_EVENT_IME_START,
     WS_EVENT_INSTALLED_APP,
     WS_EVENT_TOUCH_DISABLE,
     WS_EVENT_TOUCH_ENABLE,
@@ -63,6 +65,7 @@ OnConnected = Callable[[], Coroutine[Any, Any, None]]
 OnDisconnected = Callable[[bool], Coroutine[Any, Any, None]]  # arg: was_unauthorized
 OnAppsReceived = Callable[[list[dict]], Coroutine[Any, Any, None]]
 OnTokenReceived = Callable[[str], Coroutine[Any, Any, None]]
+OnKeyboardChanged = Callable[[bool], Coroutine[Any, Any, None]]  # arg: keyboard_active
 
 
 class TizenWSClient:
@@ -79,6 +82,7 @@ class TizenWSClient:
         on_disconnected: OnDisconnected | None = None,
         on_apps_received: OnAppsReceived | None = None,
         on_token_received: OnTokenReceived | None = None,
+        on_keyboard_changed: OnKeyboardChanged | None = None,
     ) -> None:
         self._session = session
         self._host = host
@@ -89,6 +93,7 @@ class TizenWSClient:
         self._on_disconnected = on_disconnected
         self._on_apps_received = on_apps_received
         self._on_token_received = on_token_received
+        self._on_keyboard_changed = on_keyboard_changed
 
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._reader_task: asyncio.Task | None = None
@@ -98,6 +103,9 @@ class TizenWSClient:
         # HC3 tizenWs.lua: ms.remote.touchEnable / touchDisable (browser pointer mode)
         self._touch_mode = False
         self._touch_throttle_until = 0.0
+        # HC3 tizenWs.lua: ms.remote.imeStart / imeEnd (on-screen keyboard / text field focus)
+        self._keyboard_active = False
+        self._ime_type: str | None = None
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -109,6 +117,11 @@ class TizenWSClient:
     def touch_mode(self) -> bool:
         """True after ``ms.remote.touchEnable`` (e.g. Tizen browser); d-pad uses pointer."""
         return self._touch_mode
+
+    @property
+    def keyboard_active(self) -> bool:
+        """True between ``ms.remote.imeStart`` and ``ms.remote.imeEnd``."""
+        return self._keyboard_active
 
     def should_bypass_key_queue(self, key: str) -> bool:
         """HC3 keyControl: touch-mode d-pad bypasses the inter-key queue."""
@@ -168,6 +181,8 @@ class TizenWSClient:
         """Gracefully close the WebSocket connection."""
         self._closed = True
         self._touch_mode = False
+        self._keyboard_active = False
+        self._ime_type = None
         self._stop_keepalive()
         if self._reader_task:
             self._reader_task.cancel()
@@ -263,6 +278,33 @@ class TizenWSClient:
             }
         )
 
+    async def async_send_input_string(self, text: str) -> bool:
+        """Type *text* into the focused on-screen field (SendInputString).
+
+        Text is UTF-8 → base64 encoded per the Samsung remote-control protocol.
+        Works only when a text field is focused (``ms.remote.imeStart`` received).
+        """
+        b64 = base64.b64encode(text.encode("utf-8")).decode("ascii")
+        return await self._send_json(
+            {
+                "method": WS_METHOD_REMOTE_CONTROL,
+                "params": {
+                    "Cmd": b64,
+                    "DataOfCmd": "base64",
+                    "TypeOfRemote": "SendInputString",
+                },
+            }
+        )
+
+    async def async_send_input_end(self) -> bool:
+        """Signal the end of text input (SendInputEnd)."""
+        return await self._send_json(
+            {
+                "method": WS_METHOD_REMOTE_CONTROL,
+                "params": {"TypeOfRemote": "SendInputEnd"},
+            }
+        )
+
     # ── Internal ──────────────────────────────────────────────────────────────
 
     async def _send_json(self, payload: dict) -> bool:
@@ -325,12 +367,30 @@ class TizenWSClient:
             self._touch_mode = False
             _LOGGER.debug("Samsung TV Max WS [%s]: touch mode OFF (d-pad → keys)", self._host)
 
+        elif event == WS_EVENT_IME_START:
+            self._keyboard_active = True
+            self._ime_type = msg.get("data") if isinstance(msg.get("data"), str) else None
+            _LOGGER.debug(
+                "Samsung TV Max WS [%s]: IME active (type=%s)", self._host, self._ime_type
+            )
+            if self._on_keyboard_changed:
+                await self._on_keyboard_changed(True)
+
+        elif event == WS_EVENT_IME_END:
+            self._keyboard_active = False
+            self._ime_type = None
+            _LOGGER.debug("Samsung TV Max WS [%s]: IME closed", self._host)
+            if self._on_keyboard_changed:
+                await self._on_keyboard_changed(False)
+
         elif event == WS_EVENT_INSTALLED_APP:
             await self._handle_installed_apps(msg)
 
     async def _handle_channel_connect(self, msg: dict) -> None:
         """ms.channel.connect — extract token, fire on_connected."""
         self._touch_mode = False
+        self._keyboard_active = False
+        self._ime_type = None
         # Fibaro / newer Tizen: ``data.token`` is the session token used on reconnect.
         # ``clients[*].attributes.token`` is often a *different* id (e.g. 10051859 vs 58374607).
         # Some firmware omits ``data.token`` on occasional ``ms.channel.connect`` frames; if we

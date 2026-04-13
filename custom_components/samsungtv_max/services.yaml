@@ -62,3 +62,23 @@ enumerate_apps:
       description: Target config entry ID. Omit to broadcast to all Samsung TV Max entries.
       selector:
         text:
+
+send_text:
+  name: Send Text
+  description: >
+    Type text into the focused on-screen input field on the TV (e.g. browser URL bar,
+    search box).  Works when the TV signals an active text field (ms.remote.imeStart).
+    The remote entity attribute "keyboard_active" indicates whether a field is focused.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Target config entry ID. Omit to broadcast to all Samsung TV Max entries.
+      selector:
+        text:
+    text:
+      name: Text
+      description: "The text string to send (e.g. a URL like https://example.com)."
+      required: true
+      example: "https://www.google.com"
+      selector:
+        text:

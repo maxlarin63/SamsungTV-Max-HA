@@ -273,3 +273,78 @@ class TestTouchModeDpad:
         await client._handle_message(json.dumps({"event": "ms.remote.touchEnable"}))
         assert client.should_bypass_key_queue("KEY_UP") is True
         assert client.should_bypass_key_queue("KEY_VOLUMEUP") is False
+
+
+class TestImeTracking:
+    """ms.remote.imeStart / imeEnd — on-screen keyboard tracking."""
+
+    async def test_ime_start_end_cycle(self, client):
+        assert client.keyboard_active is False
+        await client._handle_message(
+            json.dumps({"event": "ms.remote.imeStart", "data": "input"})
+        )
+        assert client.keyboard_active is True
+        assert client._ime_type == "input"
+        await client._handle_message(json.dumps({"event": "ms.remote.imeEnd"}))
+        assert client.keyboard_active is False
+        assert client._ime_type is None
+
+    async def test_channel_connect_clears_keyboard(self, client, callbacks):
+        await client._handle_message(
+            json.dumps({"event": "ms.remote.imeStart", "data": "input"})
+        )
+        assert client.keyboard_active is True
+        await client._handle_message(
+            json.dumps({"event": "ms.channel.connect", "data": {}})
+        )
+        client._stop_keepalive()
+        assert client.keyboard_active is False
+
+    async def test_close_clears_keyboard(self, client):
+        await client._handle_message(
+            json.dumps({"event": "ms.remote.imeStart", "data": "input"})
+        )
+        assert client.keyboard_active is True
+        await client.async_close()
+        assert client.keyboard_active is False
+
+
+class TestSendInputString:
+    """SendInputString + SendInputEnd WS payloads."""
+
+    async def test_send_input_string_payload(self, client):
+        ws_mock = AsyncMock()
+        ws_mock.closed = False
+        client._ws = ws_mock
+        ok = await client.async_send_input_string("hello")
+        assert ok is True
+        sent = json.loads(ws_mock.send_str.call_args[0][0])
+        assert sent["params"]["TypeOfRemote"] == "SendInputString"
+        assert sent["params"]["DataOfCmd"] == "base64"
+        import base64
+        assert base64.b64decode(sent["params"]["Cmd"]).decode("utf-8") == "hello"
+
+    async def test_send_input_string_unicode(self, client):
+        ws_mock = AsyncMock()
+        ws_mock.closed = False
+        client._ws = ws_mock
+        ok = await client.async_send_input_string("https://example.com/search?q=caf\u00e9")
+        assert ok is True
+        sent = json.loads(ws_mock.send_str.call_args[0][0])
+        import base64
+        decoded = base64.b64decode(sent["params"]["Cmd"]).decode("utf-8")
+        assert decoded == "https://example.com/search?q=caf\u00e9"
+
+    async def test_send_input_end_payload(self, client):
+        ws_mock = AsyncMock()
+        ws_mock.closed = False
+        client._ws = ws_mock
+        ok = await client.async_send_input_end()
+        assert ok is True
+        sent = json.loads(ws_mock.send_str.call_args[0][0])
+        assert sent["params"]["TypeOfRemote"] == "SendInputEnd"
+
+    async def test_send_input_string_when_disconnected(self, client):
+        client._ws = None
+        assert await client.async_send_input_string("hi") is False
+        assert await client.async_send_input_end() is False

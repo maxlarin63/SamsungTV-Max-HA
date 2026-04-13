@@ -1,11 +1,29 @@
 # Samsung TV Max — Lovelace remote panel (Grid + Button, stock cards only)
 #
-# Layout matches the integration remote: power row, D-pad, transport, app shortcuts.
+# Layout matches the integration remote: power row, D-pad, transport, app shortcuts,
+# and a text-input row (for browser URL bar / search) that appears when keyboard_active.
+#
 # DEBUG: K45 entity IDs + views: wrapper for copy-paste. Power uses remote.toggle.
 #
-# Multiple TVs: add entry_id under each samsungtv_max.launch_app data: if needed.
+# Multiple TVs: add entry_id under each samsungtv_max.* data: if needed.
 #
-# Paste: copy from the views: key below into Raw configuration editor (or merge list item only).
+# Prerequisites for text input (Row 9):
+#   1. Create an input_text helper named "TV Text Input"
+#      → Settings → Devices → Helpers → Text → entity_id: input_text.tv_text_input
+#   2. Create script "tv_send_text" (Settings → Automations → Scripts → Add Script → YAML):
+#
+#        alias: TV Send Text
+#        sequence:
+#          - service: samsungtv_max.send_text
+#            data:
+#              text: "{{ states('input_text.tv_text_input') }}"
+#          - service: input_text.set_value
+#            target:
+#              entity_id: input_text.tv_text_input
+#            data:
+#              value: ""
+#
+#   3. Paste this YAML into Dashboard → Raw Configuration (or merge the views: key).
 #
 views:
   - title: Samsung TV Remote
@@ -40,7 +58,7 @@ views:
                     entity_id: *samsungtv_remote
                   data:
                     command: KEY_MENU
-  
+
           # ── Row 2: Vol+ / Mute / CH+ ───────────────────────────────────────
           - type: grid
             columns: 3
@@ -76,7 +94,7 @@ views:
                     entity_id: *samsungtv_remote
                   data:
                     command: KEY_CHUP
-  
+
           # ── Row 3: Vol− / Source / CH− ─────────────────────────────────────
           - type: grid
             columns: 3
@@ -112,7 +130,7 @@ views:
                     entity_id: *samsungtv_remote
                   data:
                     command: KEY_CHDOWN
-  
+
           # ── Row 4: Home / Up / Info ────────────────────────────────────────
           - type: grid
             columns: 3
@@ -148,7 +166,7 @@ views:
                     entity_id: *samsungtv_remote
                   data:
                     command: KEY_INFO
-  
+
           # ── Row 5: Left / OK / Right ────────────────────────────────────────
           - type: grid
             columns: 3
@@ -184,7 +202,7 @@ views:
                     entity_id: *samsungtv_remote
                   data:
                     command: KEY_RIGHT
-  
+
           # ── Row 6: Back / Down / Exit ────────────────────────────────────────
           - type: grid
             columns: 3
@@ -220,7 +238,7 @@ views:
                     entity_id: *samsungtv_remote
                   data:
                     command: KEY_EXIT
-  
+
           # ── Row 7: Transport (media player services) ─────────────────────────
           - type: grid
             columns: 5
@@ -271,7 +289,7 @@ views:
                   service: media_player.media_next_track
                   target:
                     entity_id: *samsungtv_player
-  
+
           # ── Row 8: App shortcuts (launch by display name) ──────────────────
           - type: grid
             columns: 4
@@ -309,3 +327,39 @@ views:
                   service: samsungtv_max.launch_app
                   data:
                     app_name: Browser
+
+          # ── Row 9: Keyboard text input (visible when TV text field focused) ─
+          # Requires: input_text.tv_text_input helper + script.tv_send_text (see header).
+          # Type a URL or search term, tap Send — script sends text and clears the field.
+          - type: conditional
+            conditions:
+              - entity: remote.samsung_k45_remote
+                attribute: keyboard_active
+                state: "true"
+            card:
+              type: vertical-stack
+              cards:
+                - type: entities
+                  entities:
+                    - entity: input_text.tv_text_input
+                      name: "Type URL / text"
+                - type: grid
+                  columns: 2
+                  square: false
+                  cards:
+                    - type: button
+                      name: Send
+                      icon: mdi:send
+                      tap_action:
+                        action: call-service
+                        service: script.tv_send_text
+                    - type: button
+                      name: Clear
+                      icon: mdi:close-circle-outline
+                      tap_action:
+                        action: call-service
+                        service: input_text.set_value
+                        target:
+                          entity_id: input_text.tv_text_input
+                        data:
+                          value: ""

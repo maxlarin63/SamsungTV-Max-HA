@@ -27,16 +27,34 @@ from urllib.parse import urlencode
 import aiohttp
 
 from ..const import (
+    KEY_DOWN,
+    KEY_ENTER,
+    KEY_LEFT,
+    KEY_RIGHT,
+    KEY_UP,
     TIZEN_KEEPALIVE_INTERVAL,
+    TIZEN_TOUCH_DPAD_STEP,
+    TIZEN_TOUCH_DPAD_THROTTLE_SEC,
     TIZEN_WS_PORT,
     WS_APP_NAME,
     WS_EVENT_CHANNEL_CONNECT,
     WS_EVENT_CHANNEL_DISCONNECT,
     WS_EVENT_CHANNEL_UNAUTHORIZED,
     WS_EVENT_INSTALLED_APP,
+    WS_EVENT_TOUCH_DISABLE,
+    WS_EVENT_TOUCH_ENABLE,
     WS_METHOD_CHANNEL_EMIT,
     WS_METHOD_REMOTE_CONTROL,
 )
+
+_S = TIZEN_TOUCH_DPAD_STEP
+_TOUCH_MOVE_DELTAS: dict[str, tuple[int, int]] = {
+    KEY_UP: (0, -_S),
+    KEY_DOWN: (0, _S),
+    KEY_LEFT: (-_S, 0),
+    KEY_RIGHT: (_S, 0),
+}
+_TOUCH_QUEUE_BYPASS_KEYS: frozenset[str] = frozenset(_TOUCH_MOVE_DELTAS) | {KEY_ENTER}
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,12 +95,24 @@ class TizenWSClient:
         self._keepalive_task: asyncio.Task | None = None
         self._unauthorized = False
         self._closed = False
+        # HC3 tizenWs.lua: ms.remote.touchEnable / touchDisable (browser pointer mode)
+        self._touch_mode = False
+        self._touch_throttle_until = 0.0
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     @property
     def is_connected(self) -> bool:
         return self._ws is not None and not self._ws.closed
+
+    @property
+    def touch_mode(self) -> bool:
+        """True after ``ms.remote.touchEnable`` (e.g. Tizen browser); d-pad uses pointer."""
+        return self._touch_mode
+
+    def should_bypass_key_queue(self, key: str) -> bool:
+        """HC3 keyControl: touch-mode d-pad bypasses the inter-key queue."""
+        return self._touch_mode and key in _TOUCH_QUEUE_BYPASS_KEYS
 
     def update_token(self, token: str) -> None:
         """Update the token used for the next connection attempt."""
@@ -137,6 +167,7 @@ class TizenWSClient:
     async def async_close(self) -> None:
         """Gracefully close the WebSocket connection."""
         self._closed = True
+        self._touch_mode = False
         self._stop_keepalive()
         if self._reader_task:
             self._reader_task.cancel()
@@ -148,7 +179,23 @@ class TizenWSClient:
         self._ws = None
 
     async def async_send_key(self, key: str) -> bool:
-        """Send a single key-press command.  Returns False if not connected."""
+        """Send a single key-press, or pointer move/click when touch mode is active (HC3).
+
+        In touch mode (``ms.remote.touchEnable``), ``KEY_UP``/``DOWN``/``LEFT``/``RIGHT`` map to
+        ``ProcessMouseDevice`` moves with ``TIZEN_TOUCH_DPAD_STEP``; ``KEY_ENTER`` maps to
+        ``LeftClick``.  Repeats inside ``TIZEN_TOUCH_DPAD_THROTTLE_SEC`` are dropped (success).
+        """
+        if self._touch_mode and key in _TOUCH_QUEUE_BYPASS_KEYS:
+            loop = asyncio.get_running_loop()
+            now = loop.time()
+            if now < self._touch_throttle_until:
+                return True
+            self._touch_throttle_until = now + TIZEN_TOUCH_DPAD_THROTTLE_SEC
+            if key == KEY_ENTER:
+                return await self.async_send_touch_click()
+            dx, dy = _TOUCH_MOVE_DELTAS[key]
+            return await self.async_send_touch_move(dx, dy)
+
         return await self._send_json(
             {
                 "method": WS_METHOD_REMOTE_CONTROL,
@@ -270,11 +317,20 @@ class TizenWSClient:
         elif event == WS_EVENT_CHANNEL_DISCONNECT:
             _LOGGER.debug("WS: channel disconnect from TV")
 
+        elif event == WS_EVENT_TOUCH_ENABLE:
+            self._touch_mode = True
+            _LOGGER.debug("Samsung TV Max WS [%s]: touch mode ON (d-pad → pointer)", self._host)
+
+        elif event == WS_EVENT_TOUCH_DISABLE:
+            self._touch_mode = False
+            _LOGGER.debug("Samsung TV Max WS [%s]: touch mode OFF (d-pad → keys)", self._host)
+
         elif event == WS_EVENT_INSTALLED_APP:
             await self._handle_installed_apps(msg)
 
     async def _handle_channel_connect(self, msg: dict) -> None:
         """ms.channel.connect — extract token, fire on_connected."""
+        self._touch_mode = False
         # Fibaro / newer Tizen: ``data.token`` is the session token used on reconnect.
         # ``clients[*].attributes.token`` is often a *different* id (e.g. 10051859 vs 58374607).
         # Some firmware omits ``data.token`` on occasional ``ms.channel.connect`` frames; if we

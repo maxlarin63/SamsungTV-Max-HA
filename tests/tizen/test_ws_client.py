@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -217,3 +216,60 @@ class TestSendKey:
         client._ws = None
         result = await client.async_send_key("KEY_VOLUMEUP")
         assert result is False
+
+
+class TestTouchModeDpad:
+    """HC3-style ms.remote.touchEnable → d-pad as ProcessMouseDevice."""
+
+    async def test_touch_enable_disable(self, client):
+        await client._handle_message(json.dumps({"event": "ms.remote.touchEnable"}))
+        assert client.touch_mode is True
+        await client._handle_message(json.dumps({"event": "ms.remote.touchDisable"}))
+        assert client.touch_mode is False
+
+    async def test_channel_connect_clears_touch_mode(self, client, callbacks):
+        await client._handle_message(json.dumps({"event": "ms.remote.touchEnable"}))
+        assert client.touch_mode is True
+        await client._handle_message(json.dumps({"event": "ms.channel.connect", "data": {}}))
+        client._stop_keepalive()
+        assert client.touch_mode is False
+
+    async def test_touch_mode_key_up_sends_move(self, client):
+        ws_mock = AsyncMock()
+        ws_mock.closed = False
+        client._ws = ws_mock
+        await client._handle_message(json.dumps({"event": "ms.remote.touchEnable"}))
+        ok = await client.async_send_key("KEY_UP")
+        assert ok is True
+        ws_mock.send_str.assert_awaited_once()
+        sent = json.loads(ws_mock.send_str.call_args[0][0])
+        assert sent["params"]["TypeOfRemote"] == "ProcessMouseDevice"
+        assert sent["params"]["Cmd"] == "Move"
+        assert sent["params"]["Position"]["x"] == 0
+        assert sent["params"]["Position"]["y"] == -15
+
+    async def test_touch_mode_enter_sends_left_click(self, client):
+        ws_mock = AsyncMock()
+        ws_mock.closed = False
+        client._ws = ws_mock
+        await client._handle_message(json.dumps({"event": "ms.remote.touchEnable"}))
+        ok = await client.async_send_key("KEY_ENTER")
+        assert ok is True
+        sent = json.loads(ws_mock.send_str.call_args[0][0])
+        assert sent["params"]["TypeOfRemote"] == "ProcessMouseDevice"
+        assert sent["params"]["Cmd"] == "LeftClick"
+
+    async def test_touch_mode_throttle_swallows_rapid_repeat(self, client):
+        ws_mock = AsyncMock()
+        ws_mock.closed = False
+        client._ws = ws_mock
+        await client._handle_message(json.dumps({"event": "ms.remote.touchEnable"}))
+        assert await client.async_send_key("KEY_RIGHT") is True
+        assert await client.async_send_key("KEY_RIGHT") is True
+        assert ws_mock.send_str.await_count == 1
+
+    async def test_should_bypass_key_queue(self, client):
+        assert client.should_bypass_key_queue("KEY_UP") is False
+        await client._handle_message(json.dumps({"event": "ms.remote.touchEnable"}))
+        assert client.should_bypass_key_queue("KEY_UP") is True
+        assert client.should_bypass_key_queue("KEY_VOLUMEUP") is False

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "samsungtv_max"
 DEFAULT_NAME = "Samsung TV"
-INTEGRATION_VERSION = "0.0.39"
+INTEGRATION_VERSION = "0.0.40"
 
 # ── Network ───────────────────────────────────────────────────────────────────
 TIZEN_WS_PORT = 8002          # WebSocket remote control (wss)
@@ -43,6 +43,9 @@ STANDBY_KEY_WAKE_SETTLE_SEC = 0.35
 # ── WebSocket ─────────────────────────────────────────────────────────────────
 TIZEN_KEY_DELAY = 0.12        # Inter-key delay in seconds (120 ms)
 TIZEN_KEEPALIVE_INTERVAL = 55.0  # WS keepalive ping interval
+# Browser / pointer mode: d-pad → ProcessMouseDevice (HC3 appLaunch.lua + keyControl.lua)
+TIZEN_TOUCH_DPAD_STEP = 15
+TIZEN_TOUCH_DPAD_THROTTLE_SEC = 0.08
 
 # ── WOL ───────────────────────────────────────────────────────────────────────
 WOL_BURST_ROUNDS = 5
@@ -124,6 +127,8 @@ WS_EVENT_CHANNEL_UNAUTHORIZED = "ms.channel.unauthorized"
 WS_EVENT_CHANNEL_DISCONNECT = "ms.channel.disconnect"
 WS_EVENT_ERROR = "ms.error"
 WS_EVENT_INSTALLED_APP = "ed.installedApp.get"
+WS_EVENT_TOUCH_ENABLE = "ms.remote.touchEnable"
+WS_EVENT_TOUCH_DISABLE = "ms.remote.touchDisable"
 WS_METHOD_REMOTE_CONTROL = "ms.remote.control"
 WS_METHOD_CHANNEL_EMIT = "ms.channel.emit"
 

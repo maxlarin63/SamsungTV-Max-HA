@@ -540,7 +540,19 @@ class SamsungTVCoordinator:
         if self.power_state != PowerState.ON:
             _LOGGER.debug("Key %s ignored — TV not ON (%s)", key, self.power_state)
             return
+        ws = self._ws
+        if ws is not None and ws.should_bypass_key_queue(key):
+            asyncio.ensure_future(self._async_touch_mode_key_burst(key, max(1, count)))
+            return
         self._key_sender.enqueue(key, count)
+
+    async def _async_touch_mode_key_burst(self, key: str, count: int) -> None:
+        """Browser pointer mode: send d-pad without KeySender's inter-key delay (HC3)."""
+        for _ in range(count):
+            cur = self._ws
+            if cur is None or self.power_state != PowerState.ON:
+                return
+            await cur.async_send_key(key)
 
     async def async_launch_app(self, name_or_id: str) -> bool:
         """Launch an app by name or ID; returns False if not possible."""

@@ -7,7 +7,7 @@
 #
 # Multiple TVs: add entry_id under each samsungtv_max.* data: if needed.
 #
-# Prerequisites for text input (Row 9):
+# Prerequisites for text input (Rows 2–3, conditional):
 #   1. Create an input_text helper named "TV Text Input"
 #      → Settings → Devices → Helpers → Text → entity_id: input_text.tv_text_input
 #   2. Create script "tv_send_text" (Settings → Automations → Scripts → Add Script → YAML):
@@ -59,7 +59,42 @@ views:
                   data:
                     command: KEY_MENU
 
-          # ── Row 2: Vol+ / Mute / CH+ ───────────────────────────────────────
+          # ── Row 2–3: Keyboard text input (visible when TV text field focused) ─
+          # Requires: input_text.tv_text_input helper + script.tv_send_text (see header).
+          # The binary_sensor turns on/off with ms.remote.imeStart / imeEnd.
+          - type: conditional
+            conditions:
+              - entity: binary_sensor.samsung_k45_keyboard_active
+                state: "on"
+            card:
+              type: vertical-stack
+              cards:
+                - type: entities
+                  entities:
+                    - entity: input_text.tv_text_input
+                      name: "Type URL / text"
+                - type: grid
+                  columns: 2
+                  square: false
+                  cards:
+                    - type: button
+                      name: Send
+                      icon: mdi:send
+                      tap_action:
+                        action: call-service
+                        service: script.tv_send_text
+                    - type: button
+                      name: Clear
+                      icon: mdi:close-circle-outline
+                      tap_action:
+                        action: call-service
+                        service: input_text.set_value
+                        target:
+                          entity_id: input_text.tv_text_input
+                        data:
+                          value: ""
+
+          # ── Row 4: Vol+ / Mute / CH+ ───────────────────────────────────────
           - type: grid
             columns: 3
             square: false
@@ -95,7 +130,7 @@ views:
                   data:
                     command: KEY_CHUP
 
-          # ── Row 3: Vol− / Source / CH− ─────────────────────────────────────
+          # ── Row 5: Vol− / Source / CH− ─────────────────────────────────────
           - type: grid
             columns: 3
             square: false
@@ -131,7 +166,7 @@ views:
                   data:
                     command: KEY_CHDOWN
 
-          # ── Row 4: Home / Up / Info ────────────────────────────────────────
+          # ── Row 6: Home / Up / Info ────────────────────────────────────────
           - type: grid
             columns: 3
             square: false
@@ -167,7 +202,7 @@ views:
                   data:
                     command: KEY_INFO
 
-          # ── Row 5: Left / OK / Right ────────────────────────────────────────
+          # ── Row 7: Left / OK / Right ────────────────────────────────────────
           - type: grid
             columns: 3
             square: false
@@ -203,7 +238,7 @@ views:
                   data:
                     command: KEY_RIGHT
 
-          # ── Row 6: Back / Down / Exit ────────────────────────────────────────
+          # ── Row 8: Back / Down / Exit ────────────────────────────────────────
           - type: grid
             columns: 3
             square: false
@@ -239,7 +274,7 @@ views:
                   data:
                     command: KEY_EXIT
 
-          # ── Row 7: Transport (media player services) ─────────────────────────
+          # ── Row 9: Transport (media player services) ─────────────────────────
           - type: grid
             columns: 5
             square: false
@@ -290,7 +325,7 @@ views:
                   target:
                     entity_id: *samsungtv_player
 
-          # ── Row 8: App shortcuts (launch by display name) ──────────────────
+          # ── Row 10: App shortcuts (launch by display name) ─────────────────
           - type: grid
             columns: 4
             square: false
@@ -328,38 +363,3 @@ views:
                   data:
                     app_name: Browser
 
-          # ── Row 9: Keyboard text input (visible when TV text field focused) ─
-          # Requires: input_text.tv_text_input helper + script.tv_send_text (see header).
-          # Type a URL or search term, tap Send — script sends text and clears the field.
-          # The binary_sensor turns on/off with ms.remote.imeStart / imeEnd.
-          - type: conditional
-            conditions:
-              - entity: binary_sensor.samsung_k45_keyboard_active
-                state: "on"
-            card:
-              type: vertical-stack
-              cards:
-                - type: entities
-                  entities:
-                    - entity: input_text.tv_text_input
-                      name: "Type URL / text"
-                - type: grid
-                  columns: 2
-                  square: false
-                  cards:
-                    - type: button
-                      name: Send
-                      icon: mdi:send
-                      tap_action:
-                        action: call-service
-                        service: script.tv_send_text
-                    - type: button
-                      name: Clear
-                      icon: mdi:close-circle-outline
-                      tap_action:
-                        action: call-service
-                        service: input_text.set_value
-                        target:
-                          entity_id: input_text.tv_text_input
-                        data:
-                          value: ""

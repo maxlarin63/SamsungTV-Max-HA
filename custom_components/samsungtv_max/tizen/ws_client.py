@@ -66,6 +66,7 @@ OnDisconnected = Callable[[bool], Coroutine[Any, Any, None]]  # arg: was_unautho
 OnAppsReceived = Callable[[list[dict]], Coroutine[Any, Any, None]]
 OnTokenReceived = Callable[[str], Coroutine[Any, Any, None]]
 OnKeyboardChanged = Callable[[bool], Coroutine[Any, Any, None]]  # arg: keyboard_active
+OnImeContent = Callable[[str], Coroutine[Any, Any, None]]  # arg: decoded text
 
 
 class TizenWSClient:
@@ -83,6 +84,7 @@ class TizenWSClient:
         on_apps_received: OnAppsReceived | None = None,
         on_token_received: OnTokenReceived | None = None,
         on_keyboard_changed: OnKeyboardChanged | None = None,
+        on_ime_content: OnImeContent | None = None,
     ) -> None:
         self._session = session
         self._host = host
@@ -94,6 +96,7 @@ class TizenWSClient:
         self._on_apps_received = on_apps_received
         self._on_token_received = on_token_received
         self._on_keyboard_changed = on_keyboard_changed
+        self._on_ime_content = on_ime_content
 
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._reader_task: asyncio.Task | None = None
@@ -106,6 +109,7 @@ class TizenWSClient:
         # HC3 tizenWs.lua: ms.remote.imeStart / imeEnd (on-screen keyboard / text field focus)
         self._keyboard_active = False
         self._ime_type: str | None = None
+        self._ime_initial_content_forwarded = False
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -369,6 +373,7 @@ class TizenWSClient:
 
         elif event == WS_EVENT_IME_START:
             self._keyboard_active = True
+            self._ime_initial_content_forwarded = False
             self._ime_type = msg.get("data") if isinstance(msg.get("data"), str) else None
             _LOGGER.debug(
                 "Samsung TV Max WS [%s]: IME active (type=%s)", self._host, self._ime_type
@@ -376,9 +381,13 @@ class TizenWSClient:
             if self._on_keyboard_changed:
                 await self._on_keyboard_changed(True)
 
+        elif event == "ms.remote.imeUpdate":
+            await self._handle_ime_update(msg)
+
         elif event == WS_EVENT_IME_END:
             self._keyboard_active = False
             self._ime_type = None
+            self._ime_initial_content_forwarded = False
             _LOGGER.debug("Samsung TV Max WS [%s]: IME closed", self._host)
             if self._on_keyboard_changed:
                 await self._on_keyboard_changed(False)
@@ -460,6 +469,21 @@ class TizenWSClient:
         _LOGGER.debug("Apps received: %d entries", len(apps))
         if self._on_apps_received:
             await self._on_apps_received(apps)
+
+    async def _handle_ime_update(self, msg: dict) -> None:
+        """ms.remote.imeUpdate — decode base64 field content, forward once per imeStart."""
+        if self._ime_initial_content_forwarded or not self._on_ime_content:
+            return
+        raw = msg.get("data")
+        if not isinstance(raw, str) or not raw:
+            return
+        try:
+            text = base64.b64decode(raw).decode("utf-8")
+        except Exception:  # noqa: BLE001
+            return
+        self._ime_initial_content_forwarded = True
+        _LOGGER.debug("Samsung TV Max WS [%s]: IME initial content: %s", self._host, text[:120])
+        await self._on_ime_content(text)
 
     # ── Keepalive ─────────────────────────────────────────────────────────────
 

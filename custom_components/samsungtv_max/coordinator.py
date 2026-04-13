@@ -167,6 +167,7 @@ class SamsungTVCoordinator:
             on_apps_received=self._on_apps_received,
             on_token_received=self._handle_new_token,
             on_keyboard_changed=self._on_keyboard_changed,
+            on_ime_content=self._on_ime_content,
         )
 
         self._app_manager = AppManager(
@@ -966,6 +967,17 @@ class SamsungTVCoordinator:
         """IME state changed — refresh entity attributes so dashboard conditionals react."""
         _LOGGER.debug("Samsung TV Max [%s]: keyboard_active → %s", self._host, active)
         self._notify_listeners()
+
+    async def _on_ime_content(self, text: str) -> None:
+        """First imeUpdate after imeStart — pre-fill the input_text helper with field content."""
+        try:
+            await self.hass.services.async_call(
+                "input_text",
+                "set_value",
+                {"entity_id": "input_text.tv_text_input", "value": text[:255]},
+            )
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug("Could not set input_text.tv_text_input: %s", exc)
 
     # ── Token rotation / preservation ─────────────────────────────────────────
 

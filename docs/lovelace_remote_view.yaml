@@ -3,11 +3,17 @@
 # Layout matches the integration remote: power row, D-pad, transport, app shortcuts,
 # and a text-input row (for browser URL bar / search) that appears when keyboard_active.
 #
-# DEBUG: K45 entity IDs + views: wrapper for copy-paste. Power uses remote.toggle.
+# ── Placeholders (replace before pasting) ──────────────────────────────────
+#   REPLACE_REMOTE       → your remote entity id       (e.g. remote.samsung_k45_remote)
+#   REPLACE_PLAYER       → your media_player entity id (e.g. media_player.samsung_k45)
+#   REPLACE_KBD_SENSOR   → your binary_sensor id       (e.g. binary_sensor.samsung_k45_keyboard_active)
+#   REPLACE_ENTRY_ID     → your config entry id        (Developer Tools → States → remote entity → config_entry_id)
 #
-# Multiple TVs: add entry_id under each samsungtv_max.* data: if needed.
+# The entry_id is REQUIRED when you have more than one Samsung TV Max instance.
+# Without it, samsungtv_max.* services broadcast to ALL TVs.
+# With a single TV you may omit the entry_id lines (they are harmless if present).
 #
-# Prerequisites for text input (Rows 2–3, conditional):
+# ── Prerequisites for text input (Rows 2–3, conditional) ──────────────────
 #   1. Create an input_text helper named "TV Text Input"
 #      → Settings → Devices → Helpers → Text → entity_id: input_text.tv_text_input
 #   2. Create script "tv_send_text" (Settings → Automations → Scripts → Add Script → YAML):
@@ -17,6 +23,7 @@
 #          - service: samsungtv_max.send_text
 #            data:
 #              text: "{{ states('input_text.tv_text_input') }}"
+#              entry_id: "REPLACE_ENTRY_ID"
 #          - service: input_text.set_value
 #            target:
 #              entity_id: input_text.tv_text_input
@@ -39,7 +46,7 @@ views:
             square: false
             cards:
               - type: button
-                entity: &samsungtv_remote remote.samsung_k45_remote
+                entity: &samsungtv_remote REPLACE_REMOTE
                 name: "ON"
                 icon: mdi:power
                 show_state: true
@@ -64,7 +71,7 @@ views:
           # The binary_sensor turns on/off with ms.remote.imeStart / imeEnd.
           - type: conditional
             conditions:
-              - entity: binary_sensor.samsung_k45_keyboard_active
+              - entity: REPLACE_KBD_SENSOR
                 state: "on"
             card:
               type: vertical-stack
@@ -280,7 +287,7 @@ views:
             square: false
             cards:
               - type: button
-                entity: &samsungtv_player media_player.samsung_k45
+                entity: &samsungtv_player REPLACE_PLAYER
                 name: Play
                 icon: mdi:play
                 tap_action:
@@ -326,6 +333,7 @@ views:
                     entity_id: *samsungtv_player
 
           # ── Row 10: App shortcuts (launch by display name) ─────────────────
+          # entry_id scopes each call to THIS TV only (required with multiple TVs).
           - type: grid
             columns: 4
             square: false
@@ -338,6 +346,7 @@ views:
                   service: samsungtv_max.launch_app
                   data:
                     app_name: YouTube
+                    entry_id: REPLACE_ENTRY_ID
               - type: button
                 name: Netflix
                 icon: mdi:netflix
@@ -346,6 +355,7 @@ views:
                   service: samsungtv_max.launch_app
                   data:
                     app_name: Netflix
+                    entry_id: REPLACE_ENTRY_ID
               - type: button
                 name: Spotify
                 icon: mdi:spotify
@@ -354,6 +364,7 @@ views:
                   service: samsungtv_max.launch_app
                   data:
                     app_name: Spotify
+                    entry_id: REPLACE_ENTRY_ID
               - type: button
                 name: Web
                 icon: mdi:earth
@@ -362,4 +373,4 @@ views:
                   service: samsungtv_max.launch_app
                   data:
                     app_name: Browser
-
+                    entry_id: REPLACE_ENTRY_ID

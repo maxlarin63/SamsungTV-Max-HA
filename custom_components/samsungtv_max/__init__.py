@@ -15,6 +15,7 @@ from .const import (
     PLATFORMS,
     SERVICE_ENUMERATE_APPS,
     SERVICE_GENERATE_DASHBOARD,
+    SERVICE_HOLD_KEY,
     SERVICE_LAUNCH_APP,
     SERVICE_SEND_KEY,
     SERVICE_SEND_TEXT,
@@ -182,6 +183,33 @@ def _register_services(hass: HomeAssistant) -> None:
             SERVICE_GENERATE_DASHBOARD,
             handle_generate_dashboard,
             schema=vol.Schema({vol.Optional("entry_id"): str}),
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_HOLD_KEY):
+
+        async def handle_hold_key(call: ServiceCall) -> None:
+            entry_id = call.data.get("entry_id")
+            key = call.data["key"]
+            duration = float(call.data.get("duration", 0.5))
+            for entry in hass.config_entries.async_entries(DOMAIN):
+                if entry_id and entry.entry_id != entry_id:
+                    continue
+                coordinator: SamsungTVCoordinator = entry.runtime_data
+                await coordinator.async_hold_key(key, duration)
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_HOLD_KEY,
+            handle_hold_key,
+            schema=vol.Schema(
+                {
+                    vol.Optional("entry_id"): str,
+                    vol.Required("key"): cv.string,
+                    vol.Optional("duration", default=0.5): vol.All(
+                        vol.Coerce(float), vol.Range(min=0.1, max=5.0)
+                    ),
+                }
+            ),
         )
 
 

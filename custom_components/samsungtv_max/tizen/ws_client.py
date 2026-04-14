@@ -215,11 +215,22 @@ class TizenWSClient:
             dx, dy = _TOUCH_MOVE_DELTAS[key]
             return await self.async_send_touch_move(dx, dy)
 
+        return await self._send_key_cmd(key, "Click")
+
+    async def async_send_key_press(self, key: str) -> bool:
+        """Send key-down (TV auto-repeats until Release)."""
+        return await self._send_key_cmd(key, "Press")
+
+    async def async_send_key_release(self, key: str) -> bool:
+        """Send key-up (stops TV auto-repeat started by Press)."""
+        return await self._send_key_cmd(key, "Release")
+
+    async def _send_key_cmd(self, key: str, cmd: str) -> bool:
         return await self._send_json(
             {
                 "method": WS_METHOD_REMOTE_CONTROL,
                 "params": {
-                    "Cmd": "Click",
+                    "Cmd": cmd,
                     "DataOfCmd": key,
                     "Option": "false",
                     "TypeOfRemote": "SendRemoteKey",

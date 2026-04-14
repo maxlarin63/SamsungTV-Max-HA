@@ -106,6 +106,13 @@ _VIEW_YAML = """\
                   entity_id: {remote}
                 data:
                   command: KEY_VOLUP
+              hold_action:
+                action: call-service
+                service: samsungtv_max.send_key
+                data:
+                  key: KEY_VOLUP
+                  count: 5
+                  entry_id: {entry_id}
             - type: button
               name: Mute
               icon: mdi:volume-off
@@ -126,6 +133,13 @@ _VIEW_YAML = """\
                   entity_id: {remote}
                 data:
                   command: KEY_CHUP
+              hold_action:
+                action: call-service
+                service: samsungtv_max.send_key
+                data:
+                  key: KEY_CHUP
+                  count: 5
+                  entry_id: {entry_id}
 
         # ── Vol− / Source / CH− ───────────────────────────────────────────
         - type: grid
@@ -142,6 +156,13 @@ _VIEW_YAML = """\
                   entity_id: {remote}
                 data:
                   command: KEY_VOLDOWN
+              hold_action:
+                action: call-service
+                service: samsungtv_max.send_key
+                data:
+                  key: KEY_VOLDOWN
+                  count: 5
+                  entry_id: {entry_id}
             - type: button
               name: Source
               icon: mdi:video-input-hdmi
@@ -162,6 +183,13 @@ _VIEW_YAML = """\
                   entity_id: {remote}
                 data:
                   command: KEY_CHDOWN
+              hold_action:
+                action: call-service
+                service: samsungtv_max.send_key
+                data:
+                  key: KEY_CHDOWN
+                  count: 5
+                  entry_id: {entry_id}
 
         # ── Home / Up / Info ──────────────────────────────────────────────
         - type: grid
@@ -188,6 +216,13 @@ _VIEW_YAML = """\
                   entity_id: {remote}
                 data:
                   command: KEY_UP
+              hold_action:
+                action: call-service
+                service: samsungtv_max.send_key
+                data:
+                  key: KEY_UP
+                  count: 5
+                  entry_id: {entry_id}
             - type: button
               name: Info
               icon: mdi:information
@@ -214,6 +249,13 @@ _VIEW_YAML = """\
                   entity_id: {remote}
                 data:
                   command: KEY_LEFT
+              hold_action:
+                action: call-service
+                service: samsungtv_max.send_key
+                data:
+                  key: KEY_LEFT
+                  count: 5
+                  entry_id: {entry_id}
             - type: button
               name: OK
               icon: mdi:keyboard-return
@@ -234,6 +276,13 @@ _VIEW_YAML = """\
                   entity_id: {remote}
                 data:
                   command: KEY_RIGHT
+              hold_action:
+                action: call-service
+                service: samsungtv_max.send_key
+                data:
+                  key: KEY_RIGHT
+                  count: 5
+                  entry_id: {entry_id}
 
         # ── Back / Down / Exit ────────────────────────────────────────────
         - type: grid
@@ -260,6 +309,13 @@ _VIEW_YAML = """\
                   entity_id: {remote}
                 data:
                   command: KEY_DOWN
+              hold_action:
+                action: call-service
+                service: samsungtv_max.send_key
+                data:
+                  key: KEY_DOWN
+                  count: 5
+                  entry_id: {entry_id}
             - type: button
               name: Exit
               icon: mdi:close

@@ -556,6 +556,16 @@ class SamsungTVCoordinator:
                 return
             await cur.async_send_key(key)
 
+    async def async_hold_key(self, key: str, duration: float = 0.5) -> None:
+        """Send Press, wait *duration* seconds, then Release (TV auto-repeats while held)."""
+        if self._ws is None or self.power_state != PowerState.ON:
+            return
+        if not await self._ws.async_send_key_press(key):
+            return
+        await asyncio.sleep(duration)
+        if self._ws is not None:
+            await self._ws.async_send_key_release(key)
+
     @property
     def keyboard_active(self) -> bool:
         """True when the TV has a text field focused (ms.remote.imeStart)."""

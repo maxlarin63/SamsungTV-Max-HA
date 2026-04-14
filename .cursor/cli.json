@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(ruff *)",
+      "Shell(pytest *)",
+      "Shell(.venv* *)",
+      "Shell(git *)",
+      "Shell(python *)",
+      "Shell(Set-Location *)",
+      "Shell(head *)",
+      "Shell(cd *)"
+    ]
+  }
+}

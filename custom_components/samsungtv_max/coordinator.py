@@ -969,7 +969,7 @@ class SamsungTVCoordinator:
         self._notify_listeners()
 
     async def _on_ime_content(self, text: str) -> None:
-        """First imeUpdate after imeStart — pre-fill the input_text helper with field content."""
+        """First imeUpdate after imeStart — pre-fill the shared input_text helper."""
         try:
             await self.hass.services.async_call(
                 "input_text",

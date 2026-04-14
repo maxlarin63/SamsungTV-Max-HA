@@ -90,6 +90,14 @@ Types text into the focused on-screen input field (browser URL bar, search box).
 Works when the TV signals `ms.remote.imeStart` — the `binary_sensor.*_keyboard_active`
 entity turns on to indicate a text field is focused.
 
+### `samsungtv_max.generate_dashboard`
+```yaml
+service: samsungtv_max.generate_dashboard
+```
+Generates a ready-to-paste Lovelace dashboard view YAML with all entity IDs and
+`entry_id` pre-filled for each TV. Output appears as a persistent notification
+in **Settings → Notifications**. Also includes the `tv_send_text` script YAML.
+
 ---
 
 ## Entities
@@ -125,36 +133,17 @@ The `remote.samsungtv_max_*` entity exposes the full app catalog and TV state in
 A stock Lovelace remote panel is provided in [`docs/lovelace_remote_view.yaml`](docs/lovelace_remote_view.yaml).
 See [`docs/lovelace-remote-dashboard.md`](docs/lovelace-remote-dashboard.md) for full setup steps.
 
-### Text input prerequisites
+### Quick start (recommended)
 
-The dashboard includes a conditional text-input row that appears when the TV's browser (or any app) focuses a text field. To use it, create these two HA objects before pasting the dashboard YAML:
+1. Create helper **`input_text.tv_text_input`** (Settings → Helpers → Text, name: **TV Text Input**).
+2. Call **`samsungtv_max.generate_dashboard`** from Developer Tools → Actions.
+3. Open **Settings → Notifications** — copy the script YAML and create it, then copy the view YAML and paste into Dashboard → Raw config editor.
 
-**1. Helper — `input_text.tv_text_input`**
+The service resolves all entity IDs and `entry_id` automatically — no manual placeholder replacement needed. If the helper or script is missing after setup, a notification reminds you.
 
-Settings → Devices & Services → Helpers → Create Helper → **Text**
-- Name: **TV Text Input**
-- Max length: 255 (default)
+### How the text input works
 
-**2. Script — `script.tv_send_text`**
-
-Settings → Automations & Scenes → Scripts → Add Script → switch to YAML mode:
-
-```yaml
-alias: TV Send Text
-sequence:
-  - service: samsungtv_max.send_text
-    data:
-      text: "{{ states('input_text.tv_text_input') }}"
-  - service: input_text.set_value
-    target:
-      entity_id: input_text.tv_text_input
-    data:
-      value: ""
-```
-
-When the TV focuses a text field, `binary_sensor.*_keyboard_active` turns on, the
-text-input row slides into the dashboard, and `ms.remote.imeUpdate` pre-fills it with
-the current field content (e.g. the URL already in the address bar).
+The dashboard includes a conditional text-input row (below the power button) that appears when the TV's browser (or any app) focuses a text field. `binary_sensor.*_keyboard_active` drives the visibility. When the URL bar is selected, `ms.remote.imeUpdate` pre-fills the helper with the current URL.
 
 ---
 

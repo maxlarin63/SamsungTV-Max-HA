@@ -63,6 +63,20 @@ enumerate_apps:
       selector:
         text:
 
+generate_dashboard:
+  name: Generate Dashboard
+  description: >
+    Create a ready-to-paste Lovelace dashboard view YAML for the TV, with all
+    entity IDs and entry_id pre-filled.  The output appears as a persistent
+    notification in Settings → Notifications.  Also includes the tv_send_text
+    script YAML and a reminder to create the input_text helper.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Target config entry ID. Omit to generate for all Samsung TV Max entries.
+      selector:
+        text:
+
 send_text:
   name: Send Text
   description: >

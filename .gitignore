@@ -7,6 +7,7 @@ __pycache__/
 .mypy_cache/
 *.egg-info/
 dist/
+!custom_components/samsungtv_max/frontend/dist/
 build/
 .env.ha
 .env

@@ -72,9 +72,10 @@ $StageRoot = Join-Path $env:TEMP ("ha_scp_stage_" + [Guid]::NewGuid().ToString("
 $StagePkg = Join-Path $StageRoot "samsungtv_max"
 try {
     New-Item -ItemType Directory -Path $StagePkg -Force | Out-Null
+    # Omit frontend build toolchain: only frontend/dist/*.js is served at runtime.
     $null = robocopy $Src $StagePkg /E `
-        /XD __pycache__ .pytest_cache .mypy_cache .ruff_cache `
-        /XF *.pyc `
+        /XD __pycache__ .pytest_cache .mypy_cache .ruff_cache node_modules src `
+        /XF *.pyc package.json package-lock.json rollup.config.mjs tsconfig.json `
         /NFL /NDL /NJH /NJS /NC /NS /NP
     $RobocopyRc = $LASTEXITCODE
     if ($RobocopyRc -ge 8) {

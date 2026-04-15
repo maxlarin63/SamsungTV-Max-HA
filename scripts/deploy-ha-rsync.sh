@@ -41,6 +41,12 @@ rsync -avz --delete \
   --exclude='__pycache__' \
   --exclude='*.pyc' \
   --exclude='.ruff_cache' \
+  --exclude='node_modules/' \
+  --exclude='frontend/src/' \
+  --exclude='frontend/package.json' \
+  --exclude='frontend/package-lock.json' \
+  --exclude='frontend/rollup.config.mjs' \
+  --exclude='frontend/tsconfig.json' \
   "$SRC" "$DST"
 
 echo "✓ Deploy complete."

@@ -14,6 +14,7 @@ from homeassistant.helpers import config_validation as cv
 
 from .const import (
     DOMAIN,
+    INTEGRATION_VERSION,
     PLATFORMS,
     SERVICE_ENUMERATE_APPS,
     SERVICE_HOLD_KEY,
@@ -27,7 +28,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _FRONTEND_DIR = Path(__file__).parent / "frontend" / "dist"
 _URL_BASE = f"/{DOMAIN}"
-_CARD_JS_URL = f"{_URL_BASE}/samsung-tv-remote-card.js"
+_CARD_JS_URL = f"{_URL_BASE}/samsung-tv-remote-card.js?v={INTEGRATION_VERSION}"
 
 type SamsungTVMaxConfigEntry = ConfigEntry[SamsungTVCoordinator]
 
@@ -35,7 +36,7 @@ type SamsungTVMaxConfigEntry = ConfigEntry[SamsungTVCoordinator]
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Register the custom card JS as a frontend module (runs once for the domain)."""
     await hass.http.async_register_static_paths(
-        [StaticPathConfig(_URL_BASE, str(_FRONTEND_DIR), cache_headers=False)]
+        [StaticPathConfig(_URL_BASE, str(_FRONTEND_DIR), cache_headers=True)]
     )
     add_extra_js_url(hass, _CARD_JS_URL)
     hass.async_create_task(_async_remove_stale_lovelace_resource(hass))

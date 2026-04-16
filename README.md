@@ -24,7 +24,8 @@ Migrated from a FIBARO HC3 Quick App (Lua, v0.4.101).
 | TV generation detection | Model prefix → capability flags (`meta_tag_nav`, `has_ghost_api`) |
 | Token rotation | Token from `ms.channel.connect` persisted to config entry immediately |
 | Volume / mute | `KEY_VOLUMEUP`, `KEY_VOLUMEDOWN`, `KEY_MUTE` |
-| Custom services | `send_key`, `launch_app`, `enumerate_apps`, `send_text` |
+| Custom services | `send_key`, `launch_app`, `enumerate_apps`, `send_text`, `hold_key` |
+| Custom remote card | Bundled Lit card — power, d-pad, volume, transport, apps, text input |
 | Remote entity | Full `activity_list` + rich `extra_state_attributes` (app catalog, caps, generation) |
 | Protocol | Tizen WebSocket only (wss :8002) |
 
@@ -90,13 +91,14 @@ Types text into the focused on-screen input field (browser URL bar, search box).
 Works when the TV signals `ms.remote.imeStart` — the `binary_sensor.*_keyboard_active`
 entity turns on to indicate a text field is focused.
 
-### `samsungtv_max.generate_dashboard`
+### `samsungtv_max.hold_key`
 ```yaml
-service: samsungtv_max.generate_dashboard
+service: samsungtv_max.hold_key
+data:
+  key: KEY_VOLUMEUP
+  duration: 1.0
 ```
-Generates a ready-to-paste Lovelace dashboard view YAML with all entity IDs and
-`entry_id` pre-filled for each TV. Output appears as a persistent notification
-in **Settings → Notifications**. Also includes the `tv_send_text` script YAML.
+Simulates a long press: sends Press, waits for the duration (TV auto-repeats), then sends Release.
 
 ---
 
@@ -106,14 +108,14 @@ in **Settings → Notifications**. Also includes the `tv_send_text` script YAML.
 |---|---|---|
 | `remote` | `remote.samsung_*_remote` | Power, key sending, app launch; rich `extra_state_attributes` (apps, caps, `keyboard_active`) |
 | `media_player` | `media_player.samsung_*` | Power, volume, source select, transport controls |
-| `binary_sensor` | `binary_sensor.samsung_*_keyboard_active` | On when the TV has a text field focused (browser URL bar, search). Use in dashboard conditional cards. |
+| `binary_sensor` | `binary_sensor.samsung_*_keyboard_active` | On when the TV has a text field focused (browser URL bar, search). Drives the text-input row visibility in the card. |
 
 ---
 
 ## Remote entity
 
 The `remote.samsungtv_max_*` entity exposes the full app catalog and TV state in
-`extra_state_attributes` — designed as the foundation for a future custom remote panel:
+`extra_state_attributes` — the custom remote card reads these directly:
 
 ```json
 {
@@ -128,28 +130,78 @@ The `remote.samsungtv_max_*` entity exposes the full app catalog and TV state in
 
 ---
 
-## Dashboard setup
+## Dashboard — custom remote card
 
-A stock Lovelace remote panel is provided in [`docs/lovelace_remote_view.yaml`](docs/lovelace_remote_view.yaml).
-See [`docs/lovelace-remote-dashboard.md`](docs/lovelace-remote-dashboard.md) for full setup steps.
+The integration bundles a custom Lovelace card (`custom:samsung-tv-remote-card`)
+that provides a complete TV remote: power, d-pad, volume, transport, app
+shortcuts, and text input.
 
-### Quick start (recommended)
+### Setup
 
-1. Create helper **`input_text.tv_text_input`** (Settings → Helpers → Text, name: **TV Text Input**).
-2. Call **`samsungtv_max.generate_dashboard`** from Developer Tools → Actions.
-3. Open **Settings → Notifications** — copy the script YAML and create it, then copy the view YAML and paste into Dashboard → Raw config editor.
+1. After installing the integration, the card JS is registered automatically.
+2. In any Lovelace dashboard, **Add card → Samsung TV Remote**.
+3. Set the `entity` to your `remote.*` entity (e.g. `remote.samsung_k45_remote`).
+4. Done.
 
-The service resolves all entity IDs and `entry_id` automatically — no manual placeholder replacement needed. If the helper or script is missing after setup, a notification reminds you.
+The integration registers the bundled JS with the HA frontend and, in **Lovelace
+storage** mode, also adds a **JavaScript module** under **Settings → Dashboards →
+Resources** so WebKit (iOS Safari / Chrome) loads the card reliably. If you use
+**YAML** resources only, add the same URL manually:
 
-### Custom remote card (`custom:samsung-tv-remote-card`)
+```yaml
+resources:
+  - url: /samsungtv_max/samsung-tv-remote-card.js
+    type: module
+```
 
-Add **Add card → Samsung TV Remote** and set the `remote.*` entity. The integration registers the bundled JS with the frontend and, in **Lovelace storage** mode, also adds a **JavaScript module** under **Settings → Dashboards → Resources** so WebKit (iOS Safari / Chrome) loads the card in time for the Lovelace custom-element timeout. If you use **YAML** resources only, add the same URL there when needed.
+### Multiple TVs
 
-If the card works in the Companion app but stays **blank in a desktop browser**, check the card’s **Visibility** conditions: `media_query` and similar rules often differ by viewport. Remove or widen those rules to confirm.
+Add one card per TV, each pointing to its own `remote.*` entity. The card reads
+`entry_id` from the remote entity's attributes, so all service calls target the
+correct TV automatically.
 
-### How the text input works
+### Text input
 
-The dashboard includes a conditional text-input row (below the power button) that appears when the TV's browser (or any app) focuses a text field. `binary_sensor.*_keyboard_active` drives the visibility. When the URL bar is selected, `ms.remote.imeUpdate` pre-fills the helper with the current URL.
+When the TV browser (or any app) focuses a text field, the card shows an inline
+text input row. `ms.remote.imeUpdate` pre-fills the field with the current URL.
+Type or edit, then press **Send** — the card calls `samsungtv_max.send_text`
+directly; no HA helpers or scripts needed.
+
+### Troubleshooting
+
+- **Card blank in a desktop browser but works in the Companion app:** check the
+  card's **Visibility** conditions in the dashboard editor. `media_query` rules
+  may exclude desktop viewports. Remove or widen those rules.
+- **Card shows "Custom element doesn't exist":** restart HA so the frontend
+  module registers. Hard-refresh the browser (`Ctrl+F5`).
+
+---
+
+## Upgrading from stock Lovelace dashboard (pre-v0.2.0)
+
+Prior versions provided a stock Lovelace YAML remote panel (via
+`samsungtv_max.generate_dashboard`) and required HA helpers and scripts. The
+custom card replaces all of that. After upgrading:
+
+### What to remove from HA
+
+1. **Helper `input_text.tv_text_input`** — Settings → Helpers → delete it.
+   The custom card has its own built-in text field.
+2. **Scripts `script.tv_send_text_*`** (e.g. `script.tv_send_text_samsung_k45`) —
+   Settings → Automations → Scripts → delete them.
+   The card calls `samsungtv_max.send_text` directly.
+3. **Old dashboard view(s)** — edit Dashboard → Raw config editor, remove the
+   view(s) that were generated by `samsungtv_max.generate_dashboard`.
+4. **Persistent notifications** — dismiss any leftover "Samsung TV Max — Setup"
+   or "Samsung TV Max — Dashboard YAML" notifications in Settings → Notifications.
+
+### What was removed from the integration
+
+- `samsungtv_max.generate_dashboard` service — no longer exists.
+- `docs/lovelace_remote_view.yaml` — template file removed.
+- `docs/lovelace-remote-dashboard.md` — setup guide removed.
+- `dashboard_gen.py` — module removed.
+- Startup prerequisite check (notification about missing helpers/scripts) — removed.
 
 ---
 
@@ -173,6 +225,17 @@ pip install pytest pytest-asyncio pytest-homeassistant-custom-component pytest-s
 python3 -m venv .venv && source .venv/bin/activate
 pip install pytest pytest-asyncio pytest-homeassistant-custom-component pytest-socket ruff aiohttp wakeonlan voluptuous
 ```
+
+### Frontend (custom card)
+
+```bash
+cd custom_components/samsungtv_max/frontend
+npm install
+npm run build
+```
+
+The compiled bundle lands in `frontend/dist/samsung-tv-remote-card.js` and is
+committed to the repo so no build step is needed during deployment.
 
 ### Run tests
 ```bash

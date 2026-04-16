@@ -6,7 +6,6 @@ import logging
 from pathlib import Path
 
 import voluptuous as vol
-from homeassistant.components import persistent_notification
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
@@ -19,18 +18,12 @@ from .const import (
     INTEGRATION_VERSION,
     PLATFORMS,
     SERVICE_ENUMERATE_APPS,
-    SERVICE_GENERATE_DASHBOARD,
     SERVICE_HOLD_KEY,
     SERVICE_LAUNCH_APP,
     SERVICE_SEND_KEY,
     SERVICE_SEND_TEXT,
 )
 from .coordinator import SamsungTVCoordinator
-from .dashboard_gen import (
-    check_missing_prerequisites,
-    generate_script_yaml,
-    generate_view_yaml,
-)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -128,7 +121,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: SamsungTVMaxConfigEntry)
     await coordinator.async_setup()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _register_services(hass)
-    _check_text_input_prerequisites(hass, entry)
     return True
 
 
@@ -235,44 +227,6 @@ def _register_services(hass: HomeAssistant) -> None:
             ),
         )
 
-    if not hass.services.has_service(DOMAIN, SERVICE_GENERATE_DASHBOARD):
-
-        async def handle_generate_dashboard(call: ServiceCall) -> None:
-            entry_id = call.data.get("entry_id")
-            for entry in hass.config_entries.async_entries(DOMAIN):
-                if entry_id and entry.entry_id != entry_id:
-                    continue
-                view_yaml = generate_view_yaml(hass, entry)
-                script_yaml = generate_script_yaml(entry)
-                msg = (
-                    f"## Dashboard view for {entry.title}\n\n"
-                    f"Paste this into **Dashboard → Raw config editor** "
-                    f"under `views:`:\n\n"
-                    f"```yaml\n{view_yaml}```\n\n"
-                    f"---\n\n"
-                    f"## Script\n\n"
-                    f"Create at **Settings → Automations → Scripts → "
-                    f"Add Script → YAML mode**:\n\n"
-                    f"```yaml\n{script_yaml}\n```\n\n"
-                    f"---\n\n"
-                    f"Also create helper **input_text.tv_text_input** "
-                    f"(Settings → Helpers → Text, name: **TV Text Input**) "
-                    f"if not already created."
-                )
-                persistent_notification.async_create(
-                    hass,
-                    msg,
-                    title=f"Samsung TV Max — Dashboard YAML ({entry.title})",
-                    notification_id=f"{DOMAIN}_dashboard_{entry.entry_id}",
-                )
-
-        hass.services.async_register(
-            DOMAIN,
-            SERVICE_GENERATE_DASHBOARD,
-            handle_generate_dashboard,
-            schema=vol.Schema({vol.Optional("entry_id"): str}),
-        )
-
     if not hass.services.has_service(DOMAIN, SERVICE_HOLD_KEY):
 
         async def handle_hold_key(call: ServiceCall) -> None:
@@ -299,27 +253,3 @@ def _register_services(hass: HomeAssistant) -> None:
                 }
             ),
         )
-
-
-def _check_text_input_prerequisites(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Create a repair-style notification if helper or script is missing."""
-    missing = check_missing_prerequisites(hass, entry)
-    notif_id = f"{DOMAIN}_prereq_{entry.entry_id}"
-    if not missing:
-        persistent_notification.async_dismiss(hass, notif_id)
-        return
-    items = "\n".join(f"- {m}" for m in missing)
-    script_yaml = generate_script_yaml(entry)
-    persistent_notification.async_create(
-        hass,
-        (
-            f"The text-input feature for **{entry.title}** needs:\n\n"
-            f"{items}\n\n"
-            f"### Script YAML\n\n"
-            f"```yaml\n{script_yaml}\n```\n\n"
-            f"Or run **samsungtv_max.generate_dashboard** to get the full "
-            f"dashboard YAML with all entity IDs pre-filled."
-        ),
-        title=f"Samsung TV Max — Setup: create helper & script ({entry.title})",
-        notification_id=notif_id,
-    )

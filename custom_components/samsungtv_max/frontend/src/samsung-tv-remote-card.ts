@@ -1,5 +1,5 @@
 import { LitElement, html, nothing, type PropertyValues, type TemplateResult } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { property, state } from "lit/decorators.js";
 import { cardStyles } from "./styles.js";
 import { bindHoldRepeat } from "./hold-repeat.js";
 import type {
@@ -8,16 +8,19 @@ import type {
   SamsungTvAttributes,
 } from "./types.js";
 
-/* ── Card picker registration ─────────────────────────────────────────────── */
+/* ── Card picker registration (guard against duplicate module evaluation) ── */
 
+const TAG = "samsung-tv-remote-card";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-(window as any).customCards = (window as any).customCards || [];
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-(window as any).customCards.push({
-  type: "samsung-tv-remote-card",
-  name: "Samsung TV Remote",
-  description: "Full remote control for Samsung Tizen TVs (Samsung TV Max)",
-});
+const _w = window as any;
+_w.customCards = _w.customCards || [];
+if (!_w.customCards.some((c: { type: string }) => c.type === TAG)) {
+  _w.customCards.push({
+    type: TAG,
+    name: "Samsung TV Remote",
+    description: "Full remote control for Samsung Tizen TVs (Samsung TV Max)",
+  });
+}
 
 /* ── Key definitions ──────────────────────────────────────────────────────── */
 
@@ -92,7 +95,6 @@ const APP_SHORTCUTS: AppDef[] = [
 
 /* ── Card ──────────────────────────────────────────────────────────────────── */
 
-@customElement("samsung-tv-remote-card")
 export class SamsungTvRemoteCard extends LitElement {
   /**
    * When Lovelace visibility hides the card, `hui-card` normally detaches the element
@@ -131,6 +133,14 @@ export class SamsungTvRemoteCard extends LitElement {
   /* ── Render ─────────────────────────────────────────────────────────────── */
 
   protected render(): TemplateResult {
+    try {
+      return this._renderCard();
+    } catch (err) {
+      return html`<ha-card><div class="status">Render error: ${String(err)}</div></ha-card>`;
+    }
+  }
+
+  private _renderCard(): TemplateResult {
     if (!this._config) return html``;
     if (!this.hass) {
       return html`<ha-card><div class="status">Loading…</div></ha-card>`;
@@ -156,7 +166,7 @@ export class SamsungTvRemoteCard extends LitElement {
         ${this._renderTransport(attrs)}
         ${this._renderApps(attrs)}
         <div class="status">
-          ${attrs.tv_model || "Samsung TV"} &middot; ${attrs.power_state}
+          ${attrs.tv_model || "Samsung TV"} &middot; ${attrs.power_state ?? "unknown"}
         </div>
       </ha-card>
     `;
@@ -325,4 +335,10 @@ export class SamsungTvRemoteCard extends LitElement {
     if (this.hass.states[prefix]) return prefix;
     return undefined;
   }
+}
+
+/* ── Guarded registration (safe when the module evaluates more than once) ── */
+
+if (!customElements.get(TAG)) {
+  customElements.define(TAG, SamsungTvRemoteCard);
 }

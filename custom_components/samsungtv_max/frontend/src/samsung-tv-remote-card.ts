@@ -104,16 +104,17 @@ export class SamsungTvRemoteCard extends LitElement {
   @property({ attribute: false }) public hass!: HomeAssistant;
   @state() private _config?: SamsungTvRemoteCardConfig;
   @state() private _textValue = "";
+  private _holdsBound = false;
 
   static styles = cardStyles;
 
   /* ── Lifecycle ──────────────────────────────────────────────────────────── */
 
   public setConfig(config: SamsungTvRemoteCardConfig): void {
-    if (!config.entity) {
+    if (!config?.entity) {
       throw new Error("entity is required");
     }
-    this._config = config;
+    this._config = { ...config };
   }
 
   public getCardSize(): number {
@@ -122,19 +123,9 @@ export class SamsungTvRemoteCard extends LitElement {
 
   protected updated(changed: PropertyValues): void {
     super.updated(changed);
-    if (changed.has("hass") && this.hass && this._config) {
-      const ent = this.hass.states[this._config.entity];
-      if (ent) {
-        const attrs = ent.attributes as unknown as SamsungTvAttributes;
-        if (attrs.keyboard_active && this._textValue === "") {
-          /* will be filled by imeUpdate pre-fill via input_text watcher */
-        }
-      }
+    if (!this._holdsBound && this.hass && this._config) {
+      this._bindHoldButtons();
     }
-  }
-
-  protected firstUpdated(): void {
-    this._bindHoldButtons();
   }
 
   /* ── Render ─────────────────────────────────────────────────────────────── */
@@ -254,7 +245,9 @@ export class SamsungTvRemoteCard extends LitElement {
   private _bindHoldButtons(): void {
     const root = this.shadowRoot;
     if (!root) return;
-    root.querySelectorAll<HTMLButtonElement>("button[data-key]").forEach((btn) => {
+    const btns = root.querySelectorAll<HTMLButtonElement>("button[data-key]");
+    if (btns.length === 0) return;
+    btns.forEach((btn) => {
       const key = btn.dataset.key!;
       const def = [
         ...ROW_VOL_CH_UP, ...ROW_VOL_CH_DN,
@@ -264,6 +257,7 @@ export class SamsungTvRemoteCard extends LitElement {
         bindHoldRepeat(btn, () => this._sendKey(key));
       }
     });
+    this._holdsBound = true;
   }
 
   /* ── Actions ────────────────────────────────────────────────────────────── */

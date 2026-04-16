@@ -145,6 +145,8 @@ The service resolves all entity IDs and `entry_id` automatically — no manual p
 
 Add **Add card → Samsung TV Remote** and set the `remote.*` entity. The integration registers the bundled JS with the frontend and, in **Lovelace storage** mode, also adds a **JavaScript module** under **Settings → Dashboards → Resources** so WebKit (iOS Safari / Chrome) loads the card in time for the Lovelace custom-element timeout. If you use **YAML** resources only, add the same URL there when needed.
 
+If the card works in the Companion app but stays **blank in a desktop browser**, check the card’s **Visibility** conditions: `media_query` and similar rules often differ by viewport. Remove or widen those rules to confirm.
+
 ### How the text input works
 
 The dashboard includes a conditional text-input row (below the power button) that appears when the TV's browser (or any app) focuses a text field. `binary_sensor.*_keyboard_active` drives the visibility. When the URL bar is selected, `ms.remote.imeUpdate` pre-fills the helper with the current URL.

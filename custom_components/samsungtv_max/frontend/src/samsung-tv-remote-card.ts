@@ -94,6 +94,13 @@ const APP_SHORTCUTS: AppDef[] = [
 
 @customElement("samsung-tv-remote-card")
 export class SamsungTvRemoteCard extends LitElement {
+  /**
+   * When Lovelace visibility hides the card, `hui-card` normally detaches the element
+   * from the DOM. Desktop browsers often evaluate visibility differently than the iOS app
+   * (e.g. media_query / viewport), which produced a blank area with no `hass` updates.
+   */
+  public connectedWhileHidden = true;
+
   @property({ attribute: false }) public hass!: HomeAssistant;
   @state() private _config?: SamsungTvRemoteCardConfig;
   @state() private _textValue = "";
@@ -133,7 +140,10 @@ export class SamsungTvRemoteCard extends LitElement {
   /* ── Render ─────────────────────────────────────────────────────────────── */
 
   protected render(): TemplateResult {
-    if (!this._config || !this.hass) return html``;
+    if (!this._config) return html``;
+    if (!this.hass) {
+      return html`<ha-card><div class="status">Loading…</div></ha-card>`;
+    }
 
     const entity = this.hass.states[this._config.entity];
     if (!entity) {

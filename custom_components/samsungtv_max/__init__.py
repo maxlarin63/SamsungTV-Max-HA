@@ -9,13 +9,11 @@ import voluptuous as vol
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
-from homeassistant.core import CoreState, Event, HomeAssistant, ServiceCall, callback
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 
 from .const import (
     DOMAIN,
-    INTEGRATION_VERSION,
     PLATFORMS,
     SERVICE_ENUMERATE_APPS,
     SERVICE_HOLD_KEY,
@@ -29,69 +27,9 @@ _LOGGER = logging.getLogger(__name__)
 
 _FRONTEND_DIR = Path(__file__).parent / "frontend" / "dist"
 _URL_BASE = f"/{DOMAIN}"
+_CARD_JS_URL = f"{_URL_BASE}/samsung-tv-remote-card.js"
 
 type SamsungTVMaxConfigEntry = ConfigEntry[SamsungTVCoordinator]
-
-_CARD_MODULE_URL = f"{_URL_BASE}/samsung-tv-remote-card.js?v={INTEGRATION_VERSION}"
-_CARD_MODULE_PATH = f"{_URL_BASE}/samsung-tv-remote-card.js"
-
-
-def _hass_is_starting_or_running(hass: HomeAssistant) -> bool:
-    """Match ``hass.is_running`` semantics across HA versions (property bool vs method)."""
-    return hass.state in (CoreState.starting, CoreState.running)
-
-
-async def _async_ensure_lovelace_card_resource(hass: HomeAssistant) -> None:
-    """Register the card JS as a Lovelace module resource (storage mode only).
-
-    Home Assistant injects ``add_extra_js_url`` via fire-and-forget dynamic ``import()``
-    in ``index.html``. On slow WebKit (iOS Safari / Chrome), the Lovelace card picker
-    gives up after ~2s if the custom element is not defined yet. Loading the same URL
-    through Lovelace's resource list uses ``<script type=module>`` and aligns with the
-    panel lifecycle so the element is ready when cards render.
-    """
-    if hass.config.recovery_mode or not _hass_is_starting_or_running(hass):
-        return
-    if "lovelace" not in hass.config.components:
-        return
-
-    from homeassistant.components.lovelace import resources as ll_resources
-    from homeassistant.components.lovelace.const import LOVELACE_DATA
-
-    data = hass.data.get(LOVELACE_DATA)
-    if not data:
-        return
-
-    coll = data.resources
-    if not isinstance(coll, ll_resources.ResourceStorageCollection):
-        return
-
-    try:
-        await coll.async_get_info()
-    except Exception as exc:  # noqa: BLE001
-        _LOGGER.debug("Lovelace resources not ready: %s", exc)
-        return
-
-    for item in coll.async_items():
-        url = str(item.get("url", ""))
-        if url.split("?", 1)[0] != _CARD_MODULE_PATH:
-            continue
-        if url != _CARD_MODULE_URL:
-            try:
-                await coll.async_update_item(item["id"], {"url": _CARD_MODULE_URL})
-            except Exception as exc:  # noqa: BLE001
-                _LOGGER.debug("Could not update Lovelace resource URL: %s", exc)
-        return
-
-    try:
-        await coll.async_create_item(
-            {
-                "res_type": "module",
-                "url": _CARD_MODULE_URL,
-            }
-        )
-    except Exception as exc:  # noqa: BLE001
-        _LOGGER.debug("Could not create Lovelace resource for card JS: %s", exc)
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -99,18 +37,40 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     await hass.http.async_register_static_paths(
         [StaticPathConfig(_URL_BASE, str(_FRONTEND_DIR), cache_headers=False)]
     )
-    add_extra_js_url(hass, _CARD_MODULE_URL)
-
-    @callback
-    def _on_ha_started(_event: Event) -> None:
-        hass.async_create_task(_async_ensure_lovelace_card_resource(hass))
-
-    if _hass_is_starting_or_running(hass):
-        hass.async_create_task(_async_ensure_lovelace_card_resource(hass))
-    else:
-        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _on_ha_started)
-
+    add_extra_js_url(hass, _CARD_JS_URL)
+    hass.async_create_task(_async_remove_stale_lovelace_resource(hass))
     return True
+
+
+async def _async_remove_stale_lovelace_resource(hass: HomeAssistant) -> None:
+    """Remove the Lovelace resource entry that older versions (<=0.2.2) created.
+
+    Previous releases registered the card JS as both add_extra_js_url AND a
+    Lovelace storage resource, which caused dual evaluation of the module on
+    WebKit and intermittent "Configuration error".  Only add_extra_js_url is
+    needed; clean up the leftover resource so the module is loaded exactly once.
+    """
+    try:
+        if "lovelace" not in hass.config.components:
+            return
+        from homeassistant.components.lovelace import resources as ll_res
+        from homeassistant.components.lovelace.const import LOVELACE_DATA
+
+        data = hass.data.get(LOVELACE_DATA)
+        if not data:
+            return
+        coll = data.resources
+        if not isinstance(coll, ll_res.ResourceStorageCollection):
+            return
+        await coll.async_get_info()
+        for item in coll.async_items():
+            url = str(item.get("url", ""))
+            if "/samsungtv_max/samsung-tv-remote-card" in url:
+                await coll.async_delete_item(item["id"])
+                _LOGGER.info("Removed stale Lovelace resource: %s", url)
+                return
+    except Exception:  # noqa: BLE001
+        pass
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: SamsungTVMaxConfigEntry) -> bool:

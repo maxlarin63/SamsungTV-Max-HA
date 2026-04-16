@@ -113,10 +113,7 @@ export class SamsungTvRemoteCard extends LitElement {
   /* ── Lifecycle ──────────────────────────────────────────────────────────── */
 
   public setConfig(config: SamsungTvRemoteCardConfig): void {
-    if (!config?.entity) {
-      throw new Error("entity is required");
-    }
-    this._config = { ...config };
+    this._config = config ? { ...config } : undefined;
   }
 
   public getCardSize(): number {
@@ -142,6 +139,9 @@ export class SamsungTvRemoteCard extends LitElement {
 
   private _renderCard(): TemplateResult {
     if (!this._config) return html``;
+    if (!this._config.entity) {
+      return html`<ha-card><div class="status">Set "entity" to a remote.* entity in card config</div></ha-card>`;
+    }
     if (!this.hass) {
       return html`<ha-card><div class="status">Loading…</div></ha-card>`;
     }

@@ -1,7 +1,7 @@
 {
   "domain": "samsungtv_max",
   "name": "Samsung TV Max",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "documentation": "https://github.com/maxlarin63/samsungtv-max-ha",
   "issue_tracker": "https://github.com/maxlarin63/samsungtv-max-ha/issues",
   "requirements": ["wakeonlan==3.1.0"],

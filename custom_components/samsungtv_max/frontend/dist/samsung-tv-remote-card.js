@@ -75,7 +75,7 @@ button {
   background: var(--btn-bg); color: var(--btn-fg);
   border: 1px solid rgba(255,255,255,.08);
   border-radius: var(--btn-radius);
-  cursor: pointer; font-size: 13px; padding: 10px 0; min-height: 42px;
+  cursor: pointer; font-size: 16px; padding: 12px 0; min-height: 48px;
   touch-action: manipulation; user-select: none;
   -webkit-tap-highlight-color: transparent;
   transition: transform .1s ease, background .1s ease, border-color .1s ease;
@@ -85,7 +85,7 @@ button:active {
   background: rgba(255,255,255,.06);
   border-color: rgba(255,255,255,.18);
 }
-button ha-icon { --mdc-icon-size: 22px; }
+button ha-icon { --mdc-icon-size: 24px; }
 button.power-on { color: var(--btn-active); border-color: var(--btn-active); }
 button.power-on:active {
   background: color-mix(in srgb, var(--btn-active) 15%, transparent);

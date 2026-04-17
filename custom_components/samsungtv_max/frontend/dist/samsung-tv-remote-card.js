@@ -78,11 +78,19 @@ button {
   cursor: pointer; font-size: 13px; padding: 10px 0; min-height: 42px;
   touch-action: manipulation; user-select: none;
   -webkit-tap-highlight-color: transparent;
-  transition: opacity .1s;
+  transition: transform .1s ease, background .1s ease, border-color .1s ease;
 }
-button:active { opacity: .6; }
+button:active {
+  transform: scale(0.92);
+  background: rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.18);
+}
 button ha-icon { --mdc-icon-size: 22px; }
 button.power-on { color: var(--btn-active); border-color: var(--btn-active); }
+button.power-on:active {
+  background: color-mix(in srgb, var(--btn-active) 15%, transparent);
+  border-color: var(--btn-active);
+}
 
 .row-2 { display:grid; grid-template-columns:repeat(2,1fr); gap:var(--gap); margin-bottom:var(--gap); }
 .row-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:var(--gap); margin-bottom:var(--gap); }
@@ -113,6 +121,9 @@ button.power-on { color: var(--btn-active); border-color: var(--btn-active); }
   padding: 2px 0 6px;
 }
 `;
+function haptic(type = "light") {
+    window.dispatchEvent(new CustomEvent("haptic", { detail: type }));
+}
 /* ── Hold-repeat helper ──────────────────────────────────────────────── */
 const HOLD_INTERVAL_MS = 150;
 function bindHoldRepeat(el, cb) {
@@ -128,8 +139,12 @@ function bindHoldRepeat(el, cb) {
             return;
         ev.preventDefault();
         stop();
+        haptic("medium");
         cb();
-        timer = setInterval(cb, HOLD_INTERVAL_MS);
+        timer = setInterval(() => {
+            haptic("selection");
+            cb();
+        }, HOLD_INTERVAL_MS);
     };
     el.addEventListener("pointerdown", down);
     el.addEventListener("pointerup", stop);
@@ -277,6 +292,7 @@ ${_rowHtml(DPAD_BOT, "row-3")}
                 return;
             if (btn.dataset.hold)
                 return;
+            haptic("light");
             if (btn.dataset.key) {
                 this._handleKeyTap(btn.dataset.key);
             }

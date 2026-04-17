@@ -6,7 +6,6 @@ import logging
 from pathlib import Path
 
 import voluptuous as vol
-from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
@@ -38,22 +37,42 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     await hass.http.async_register_static_paths(
         [StaticPathConfig(_URL_BASE, str(_FRONTEND_DIR), cache_headers=True)]
     )
-    add_extra_js_url(hass, _CARD_JS_URL)
-    hass.async_create_task(_async_ensure_lovelace_resource(hass))
+    _purge_extra_js_urls(hass)
+    await _async_ensure_lovelace_resource(hass)
     return True
+
+
+def _purge_extra_js_urls(hass: HomeAssistant) -> None:
+    """Remove any stale add_extra_js_url entries left by older versions.
+
+    ``add_extra_js_url`` bakes a ``<script type="module">`` tag into the HTML
+    served by ``/``.  HA's Service Worker caches that HTML, so after a version
+    bump the *old* ``?v=…`` URL can persist in the cached page, causing the
+    browser to load the previous bundle from its HTTP cache.  We now load the
+    card exclusively via Lovelace resources (fetched via API, not cached HTML).
+    """
+    for key in ("frontend_extra_module_url", "frontend_extra_js_url_es5"):
+        urls: set[str] | None = hass.data.get(key)
+        if not urls:
+            continue
+        stale = {u for u in urls if "/samsungtv_max/" in u}
+        urls -= stale
+        if stale:
+            _LOGGER.debug("Purged stale extra-js URLs: %s", stale)
 
 
 async def _async_ensure_lovelace_resource(hass: HomeAssistant) -> None:
     """Ensure the card JS is registered as a Lovelace module resource.
 
-    ``add_extra_js_url`` loads via a fire-and-forget ``import()`` in index.html.
-    On page refresh the HA app resolves from cache faster than the import settles,
-    so the custom element isn't defined when Lovelace creates cards.
+    This is the **only** mechanism we use to load the card JS.  Unlike
+    ``add_extra_js_url`` (which embeds the URL in the HTML, where it gets cached
+    by the Service Worker), Lovelace resources are fetched from the backend via
+    ``/api/lovelace/resources`` — always returning the current URL.
 
-    Lovelace resources are loaded by the panel itself *before* cards render, so
-    registering the **same** URL here guarantees timing.  The ES module spec
-    deduplicates by URL: even though two ``<script>`` tags reference the file,
-    the browser evaluates it only once.
+    When the element is not yet defined at render time, HA's ``hui-card`` creates
+    a hidden error card and waits up to 2 s via ``customElements.whenDefined()``.
+    Once the module evaluates and calls ``customElements.define``, the waiting
+    promise resolves and ``ll-rebuild`` fires, rebuilding the card automatically.
     """
     try:
         if "lovelace" not in hass.config.components:

@@ -460,11 +460,25 @@ function _rowHtml(btns: Btn[], cls: string): string {
 
 /* ── Register element ────────────────────────────────────────────────── */
 
-console.log(`[${TAG}] defining element`);
-if (!customElements.get(TAG)) {
+const _existing = customElements.get(TAG);
+if (_existing) {
+  console.warn(
+    `[${TAG}] ALREADY registered by another module (stale SW cache?).`
+    + ` Existing class: ${_existing.name}`,
+  );
+} else {
   customElements.define(TAG, SamsungTvRemoteCard);
+  console.log(`[${TAG}] defined`);
 }
 console.log(
   `[${TAG}] ready @${performance.now().toFixed(0)}ms`
   + ` (eval ${(performance.now() - _t0).toFixed(1)}ms)`,
 );
+
+/* Expose load timestamp for debugging from browser console:
+   window.__samsungTvCard → { defined: true, time: 42, cls: "SamsungTvRemoteCard" } */
+(window as unknown as Record<string, unknown>).__samsungTvCard = {
+  defined: !_existing,
+  time: performance.now(),
+  cls: customElements.get(TAG)?.name,
+};

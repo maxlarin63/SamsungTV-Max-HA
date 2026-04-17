@@ -51,14 +51,27 @@ def _purge_extra_js_urls(hass: HomeAssistant) -> None:
     browser to load the previous bundle from its HTTP cache.  We now load the
     card exclusively via Lovelace resources (fetched via API, not cached HTML).
     """
-    for key in ("frontend_extra_module_url", "frontend_extra_js_url_es5"):
-        urls: set[str] | None = hass.data.get(key)
-        if not urls:
+    try:
+        from homeassistant.components.frontend import (
+            DATA_EXTRA_MODULE_URL,
+            DATA_EXTRA_JS_URL_ES5,
+        )
+    except ImportError:
+        return
+
+    for key in (DATA_EXTRA_MODULE_URL, DATA_EXTRA_JS_URL_ES5):
+        mgr = hass.data.get(key)
+        if mgr is None:
             continue
-        stale = {u for u in urls if "/samsungtv_max/" in u}
-        urls -= stale
-        if stale:
-            _LOGGER.debug("Purged stale extra-js URLs: %s", stale)
+        try:
+            url_set: set[str] = mgr.urls if hasattr(mgr, "urls") else mgr  # type: ignore[assignment]
+            stale = {u for u in url_set if "/samsungtv_max/" in u}
+            for u in stale:
+                url_set.discard(u)
+            if stale:
+                _LOGGER.debug("Purged stale extra-js URLs: %s", stale)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Could not purge extra-js URL key %s", key, exc_info=True)
 
 
 async def _async_ensure_lovelace_resource(hass: HomeAssistant) -> None:

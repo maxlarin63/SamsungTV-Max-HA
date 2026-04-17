@@ -39,17 +39,21 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         [StaticPathConfig(_URL_BASE, str(_FRONTEND_DIR), cache_headers=True)]
     )
     add_extra_js_url(hass, _CARD_JS_URL)
-    hass.async_create_task(_async_remove_stale_lovelace_resource(hass))
+    hass.async_create_task(_async_ensure_lovelace_resource(hass))
     return True
 
 
-async def _async_remove_stale_lovelace_resource(hass: HomeAssistant) -> None:
-    """Remove the Lovelace resource entry that older versions (<=0.2.2) created.
+async def _async_ensure_lovelace_resource(hass: HomeAssistant) -> None:
+    """Ensure the card JS is registered as a Lovelace module resource.
 
-    Previous releases registered the card JS as both add_extra_js_url AND a
-    Lovelace storage resource, which caused dual evaluation of the module on
-    WebKit and intermittent "Configuration error".  Only add_extra_js_url is
-    needed; clean up the leftover resource so the module is loaded exactly once.
+    ``add_extra_js_url`` loads via a fire-and-forget ``import()`` in index.html.
+    On page refresh the HA app resolves from cache faster than the import settles,
+    so the custom element isn't defined when Lovelace creates cards.
+
+    Lovelace resources are loaded by the panel itself *before* cards render, so
+    registering the **same** URL here guarantees timing.  The ES module spec
+    deduplicates by URL: even though two ``<script>`` tags reference the file,
+    the browser evaluates it only once.
     """
     try:
         if "lovelace" not in hass.config.components:
@@ -64,14 +68,19 @@ async def _async_remove_stale_lovelace_resource(hass: HomeAssistant) -> None:
         if not isinstance(coll, ll_res.ResourceStorageCollection):
             return
         await coll.async_get_info()
+
         for item in coll.async_items():
             url = str(item.get("url", ""))
-            if "/samsungtv_max/samsung-tv-remote-card" in url:
-                await coll.async_delete_item(item["id"])
-                _LOGGER.info("Removed stale Lovelace resource: %s", url)
+            if "/samsungtv_max/samsung-tv-remote-card" not in url:
+                continue
+            if url == _CARD_JS_URL:
                 return
+            await coll.async_update_item(item["id"], {"url": _CARD_JS_URL})
+            return
+
+        await coll.async_create_item({"res_type": "module", "url": _CARD_JS_URL})
     except Exception:  # noqa: BLE001
-        pass
+        _LOGGER.debug("Could not register Lovelace resource for card JS", exc_info=True)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: SamsungTVMaxConfigEntry) -> bool:

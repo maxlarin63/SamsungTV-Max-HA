@@ -53,8 +53,8 @@ def _purge_extra_js_urls(hass: HomeAssistant) -> None:
     """
     try:
         from homeassistant.components.frontend import (
-            DATA_EXTRA_MODULE_URL,
             DATA_EXTRA_JS_URL_ES5,
+            DATA_EXTRA_MODULE_URL,
         )
     except ImportError:
         return

@@ -1,0 +1,58 @@
+---
+description: Mandatory local validation before commit / deploy
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# Local validation gate (strict)
+
+Any change that touches Python or tests **must** pass local validation before
+being committed or deployed. No "I'll check in CI later" — CI is a safety net,
+not a substitute for the local gate.
+
+## When the gate applies
+
+Run the gate after **every** code change that touches:
+
+- `custom_components/samsungtv_max/**` (any `.py`, `manifest.json`, etc.)
+- `tests/**`
+- `scripts/**`
+- `pyproject.toml`, `requirements-dev.txt`
+
+Frontend-only changes (`frontend/src/**`, README, `.gitignore`, markdown docs)
+are exempt — they don't affect the Python suite.
+
+## The gate (two commands, in order)
+
+Run from the repo root in PowerShell:
+
+```powershell
+.\.venv\Scripts\python.exe -m ruff check custom_components/
+.\.venv\Scripts\python.exe -m pytest tests/ -q
+```
+
+Linux / macOS equivalent:
+
+```bash
+.venv/bin/python -m ruff check custom_components/
+.venv/bin/python -m pytest tests/ -q
+```
+
+Both must exit 0. If either fails: **fix, rerun, do not commit / deploy.**
+
+## Ordering with other rules
+
+1. Make the code change.
+2. If deployables changed → bump `INTEGRATION_VERSION` + `manifest.json`
+   (per `versioning.mdc`).
+3. Run the local validation gate above.
+4. Only then: `git commit` and/or trigger the **Deploy to HA** task.
+
+Skipping step 3 is a rule violation even if the change looks trivial.
+
+## Why not rely on CI
+
+- CI runs on `push` / `pull_request` — by the time it reports failure the
+  broken code is already on the HA box if you deployed first.
+- The Windows + Python 3.12 venv here catches the same failures CI does in
+  ~2 s. There is no reason to defer.

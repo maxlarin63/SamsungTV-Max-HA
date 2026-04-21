@@ -105,12 +105,14 @@ class SamsungTVRemote(RemoteEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Rich attributes consumed by the future custom remote panel."""
+        icon_urls = self._coordinator.icon_urls
         apps = [
             {
                 "id": a.get("appId", ""),
                 "name": a.get("name", ""),
                 "type": a.get("app_type", 2),
                 "icon_path": a.get("icon_path"),
+                "icon_url": icon_urls.get(a.get("appId", "")),
             }
             for a in self._coordinator.apps
             if a.get("is_visible", True)

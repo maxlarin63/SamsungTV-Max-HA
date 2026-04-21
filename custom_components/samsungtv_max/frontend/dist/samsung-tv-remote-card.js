@@ -19,6 +19,7 @@ if (!_w.customCards.some((c) => c.type === TAG)) {
 }
 const ROW_POWER = [
     { key: "_POWER", icon: "mdi:power", label: "ON" },
+    { key: "_APPS", icon: "mdi:apps", label: "Apps" },
     { key: "KEY_MENU", icon: "mdi:menu", label: "Menu" },
 ];
 const VOL_CH_UP = [
@@ -59,6 +60,34 @@ const APPS = [
     { name: "Spotify", icon: "mdi:spotify", label: "Spotify" },
     { name: "Browser", icon: "mdi:earth", label: "Web" },
 ];
+/* Fallback MDI icons for the full app-picker modal when the TV never delivers
+   (or fails to deliver) a PNG for a given app.  Matched case-insensitively
+   against the display name; first substring hit wins. */
+const APP_ICON_MDI_FALLBACKS = [
+    ["youtube", "mdi:youtube"],
+    ["netflix", "mdi:netflix"],
+    ["spotify", "mdi:spotify"],
+    ["prime video", "mdi:amazon"],
+    ["amazon", "mdi:amazon"],
+    ["disney", "mdi:star-four-points"],
+    ["apple tv", "mdi:apple"],
+    ["plex", "mdi:plex"],
+    ["internet", "mdi:earth"],
+    ["browser", "mdi:earth"],
+    ["web", "mdi:earth"],
+    ["tunein", "mdi:radio"],
+    ["music", "mdi:music"],
+    ["game", "mdi:gamepad-variant"],
+    ["news", "mdi:newspaper"],
+];
+function mdiForAppName(name) {
+    const lower = name.toLowerCase();
+    for (const [needle, icon] of APP_ICON_MDI_FALLBACKS) {
+        if (lower.includes(needle))
+            return icon;
+    }
+    return "mdi:application";
+}
 /* ── CSS ─────────────────────────────────────────────────────────────── */
 const CARD_CSS = /* css */ `
 :host {
@@ -120,6 +149,76 @@ button.power-on:active {
   color: var(--secondary-text-color, #888);
   padding: 2px 0 6px;
 }
+
+/* ── App picker modal ───────────────────────────────────────────────── */
+.apps-modal {
+  position: fixed; inset: 0; z-index: 9999;
+  display: flex; align-items: center; justify-content: center;
+}
+.apps-modal[hidden] { display: none; }
+.apps-backdrop {
+  position: absolute; inset: 0; background: rgba(0,0,0,.65);
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  animation: fadeIn .15s ease-out;
+}
+.apps-panel {
+  position: relative; width: min(92vw, 380px); max-height: 82vh;
+  background: var(--card-background-color, #1c1c1c);
+  color: var(--primary-text-color, #e0e0e0);
+  border-radius: 16px; padding: 14px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.55);
+  display: flex; flex-direction: column;
+  animation: popIn .18s ease-out;
+}
+@keyframes fadeIn { from { opacity:0 } to { opacity:1 } }
+@keyframes popIn {
+  from { opacity:0; transform: translateY(8px) scale(.97); }
+  to   { opacity:1; transform: none; }
+}
+.apps-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 2px 10px; font-size: 15px; font-weight: 500;
+}
+.apps-head button {
+  width: 34px; min-height: 34px; padding: 0;
+  background: transparent; border-color: transparent;
+}
+.apps-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  overflow-y: auto; padding: 2px;
+}
+.apps-tile {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: flex-start; gap: 4px;
+  padding: 10px 6px 8px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.06);
+  cursor: pointer;
+  min-height: 0;
+  transition: transform .1s ease, background .1s ease, border-color .1s ease;
+}
+.apps-tile:active { transform: scale(.94); background: rgba(255,255,255,.1); }
+.apps-tile.active {
+  border-color: var(--btn-active);
+  background: color-mix(in srgb, var(--btn-active) 18%, transparent);
+}
+.apps-tile .tile-icon {
+  width: 56px; height: 56px; display: flex; align-items: center; justify-content: center;
+  border-radius: 10px; background: #fff; overflow: hidden;
+}
+.apps-tile .tile-icon img { width: 100%; height: 100%; object-fit: contain; }
+.apps-tile .tile-icon ha-icon { --mdc-icon-size: 40px; color: #333; }
+.apps-tile .tile-name {
+  font-size: 11px; line-height: 1.2; text-align: center;
+  width: 100%;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.apps-empty {
+  text-align: center; color: var(--secondary-text-color, #888);
+  padding: 20px 8px; font-size: 13px;
+}
 `;
 function haptic(type = "light") {
     window.dispatchEvent(new CustomEvent("haptic", { detail: type }));
@@ -176,6 +275,9 @@ class SamsungTvRemoteCard extends HTMLElement {
         this._textInput = null;
         this._transportRow = null;
         this._statusLine = null;
+        this._appsModal = null;
+        this._appsGrid = null;
+        this._appsModalOpen = false;
         this.attachShadow({ mode: "open" });
     }
     /* ── HA lifecycle ─────────────────────────────────────────────────── */
@@ -239,7 +341,7 @@ class SamsungTvRemoteCard extends HTMLElement {
         this._holdCleanups = [];
         const sr = this.shadowRoot;
         sr.innerHTML = `<style>${CARD_CSS}</style><ha-card>
-${_rowHtml(ROW_POWER, "row-2")}
+${_rowHtml(ROW_POWER, "row-3")}
 <div class="text-row" id="text-row" style="display:none">
   <input type="text" placeholder="Type URL / text\u2026" />
   <button class="send-btn"><ha-icon icon="mdi:send"></ha-icon></button>
@@ -253,12 +355,24 @@ ${_rowHtml(DPAD_BOT, "row-3")}
 <div class="row-5" id="transport-row">${TRANSPORTS.map((t) => `<button data-transport="${t.service}"><ha-icon icon="${t.icon}"></ha-icon></button>`).join("")}</div>
 <div class="row-4">${APPS.map((a) => `<button data-app="${a.name}"><ha-icon icon="${a.icon}"></ha-icon>&nbsp;${a.label}</button>`).join("")}</div>
 <div class="status" id="status-line"></div>
+<div class="apps-modal" id="apps-modal" hidden>
+  <div class="apps-backdrop" id="apps-backdrop"></div>
+  <div class="apps-panel" role="dialog" aria-label="Apps">
+    <div class="apps-head">
+      <span>Apps</span>
+      <button class="apps-close" aria-label="Close"><ha-icon icon="mdi:close"></ha-icon></button>
+    </div>
+    <div class="apps-grid" id="apps-grid"></div>
+  </div>
+</div>
 </ha-card>`;
         this._powerBtn = sr.querySelector('button[data-key="_POWER"]');
         this._textRow = sr.getElementById("text-row");
         this._textInput = sr.querySelector("#text-row input");
         this._transportRow = sr.getElementById("transport-row");
         this._statusLine = sr.getElementById("status-line");
+        this._appsModal = sr.getElementById("apps-modal");
+        this._appsGrid = sr.getElementById("apps-grid");
         this._bindEvents(sr);
         this._domReady = true;
     }
@@ -282,6 +396,9 @@ ${_rowHtml(DPAD_BOT, "row-3")}
             const power = attrs.power_state ?? "unknown";
             this._statusLine.textContent = `${model} \u00b7 ${power}`;
         }
+        if (this._appsModalOpen) {
+            this._renderAppsGrid();
+        }
     }
     /* ── Event binding (runs once after _createDom) ───────────────────── */
     _bindEvents(sr) {
@@ -292,8 +409,22 @@ ${_rowHtml(DPAD_BOT, "row-3")}
                 return;
             if (btn.dataset.hold)
                 return;
+            if (btn.classList.contains("apps-close")) {
+                haptic("light");
+                this._closeAppsModal();
+                return;
+            }
+            if (btn.dataset.tileAppId !== undefined) {
+                haptic("selection");
+                this._launchAppById(btn.dataset.tileAppId, btn.dataset.tileAppName || "");
+                this._closeAppsModal();
+                return;
+            }
             haptic("light");
-            if (btn.dataset.key) {
+            if (btn.dataset.key === "_APPS") {
+                this._openAppsModal();
+            }
+            else if (btn.dataset.key) {
                 this._handleKeyTap(btn.dataset.key);
             }
             else if (btn.dataset.transport) {
@@ -313,6 +444,10 @@ ${_rowHtml(DPAD_BOT, "row-3")}
                     this._textInput.value = "";
             }
         });
+        const backdrop = sr.getElementById("apps-backdrop");
+        if (backdrop) {
+            backdrop.addEventListener("click", () => this._closeAppsModal());
+        }
         sr.querySelectorAll("button[data-hold]").forEach((btn) => {
             const key = btn.dataset.key;
             this._holdCleanups.push(bindHoldRepeat(btn, () => this._sendKey(key)));
@@ -369,6 +504,83 @@ ${_rowHtml(DPAD_BOT, "row-3")}
             entry_id: attrs?.config_entry_id || "",
         });
     }
+    _launchAppById(appId, fallbackName) {
+        if (!this._hass)
+            return;
+        const entryId = this._getEntryId();
+        if (appId) {
+            this._hass.callService("samsungtv_max", "launch_app", {
+                app_id: appId,
+                entry_id: entryId,
+            });
+        }
+        else if (fallbackName) {
+            this._hass.callService("samsungtv_max", "launch_app", {
+                app_name: fallbackName,
+                entry_id: entryId,
+            });
+        }
+    }
+    /* ── Apps modal ───────────────────────────────────────────────────── */
+    _openAppsModal() {
+        if (!this._appsModal)
+            return;
+        this._appsModalOpen = true;
+        this._renderAppsGrid();
+        this._appsModal.hidden = false;
+    }
+    _closeAppsModal() {
+        if (!this._appsModal)
+            return;
+        this._appsModalOpen = false;
+        this._appsModal.hidden = true;
+    }
+    _currentAppsList() {
+        if (!this._hass || !this._config)
+            return [];
+        const st = this._hass.states[this._config.entity];
+        const raw = st?.attributes?.apps ?? [];
+        if (!Array.isArray(raw))
+            return [];
+        return raw.filter((a) => !!a && typeof a === "object");
+    }
+    _currentSource() {
+        if (!this._hass || !this._config)
+            return "";
+        const mp = this._findMediaPlayer(this._hass.states[this._config.entity]?.attributes ?? {});
+        if (!mp)
+            return "";
+        const src = this._hass.states[mp]?.attributes?.source;
+        return typeof src === "string" ? src : "";
+    }
+    _renderAppsGrid() {
+        const grid = this._appsGrid;
+        if (!grid)
+            return;
+        const apps = this._currentAppsList();
+        if (!apps.length) {
+            grid.innerHTML =
+                `<div class="apps-empty">No apps yet \u2014 wait a few seconds or `
+                    + `run <code>samsungtv_max.enumerate_apps</code>.</div>`;
+            return;
+        }
+        const currentName = this._currentSource().toLowerCase();
+        const sorted = [...apps].sort((a, b) => (a.name || "").localeCompare(b.name || "", undefined, { sensitivity: "base" }));
+        grid.innerHTML = sorted.map((a) => {
+            const name = _escapeHtml(a.name || a.id || "");
+            const iconUrl = a.icon_url || "";
+            const active = currentName && name.toLowerCase() === currentName ? " active" : "";
+            const iconInner = iconUrl
+                ? `<img src="${_escapeHtml(iconUrl)}" loading="lazy" alt="">`
+                : `<ha-icon icon="${mdiForAppName(a.name || "")}"></ha-icon>`;
+            return `<button class="apps-tile${active}"`
+                + ` data-tile-app-id="${_escapeHtml(a.id || "")}"`
+                + ` data-tile-app-name="${name}">`
+                + `<span class="tile-icon">${iconInner}</span>`
+                + `<span class="tile-name">${name}</span>`
+                + `</button>`;
+        }).join("");
+    }
     _callMediaPlayer(service, entityId) {
         if (!this._hass)
             return;
@@ -409,6 +621,14 @@ function _rowHtml(btns, cls) {
         return `<button data-key="${b.key}"${hold}>`
             + `<ha-icon icon="${b.icon}"></ha-icon>${lbl}</button>`;
     }).join("")}</div>`;
+}
+function _escapeHtml(s) {
+    return s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
 }
 /* ── Register element ────────────────────────────────────────────────── */
 const _existing = customElements.get(TAG);

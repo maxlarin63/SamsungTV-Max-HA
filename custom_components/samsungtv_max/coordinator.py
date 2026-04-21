@@ -21,8 +21,10 @@ screen.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import aiohttp
@@ -58,6 +60,7 @@ from .const import (
     WOL_BURST_ROUNDS,
     WOL_BURST_STEP,
 )
+from .tizen import icon_cache
 from .tizen.app_manager import AppManager
 from .tizen.caps import TizenCaps, detect_caps, extract_generation
 from .tizen.key_sender import KeySender
@@ -75,6 +78,12 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 WOL_UDP_PORT = 9  # same default as HC3 / wakeonlan; must match TV WoL setting
+
+# Pacing for ed.apps.icon prefetch — slow enough that a K45 (no `event` key,
+# chattier reply window) does not coalesce responses, fast enough that 20 icons
+# complete in well under the wake grace period.
+_ICON_PROBE_SPACING_SEC = 0.15
+_ICON_PREFETCH_BUDGET_SEC = 12.0
 
 
 def _execute_wol_round(
@@ -110,6 +119,12 @@ class SamsungTVCoordinator:
         # App catalog populated after WS connect
         self.apps: list[dict] = []
         self.current_app: str | None = None
+        # appId → cached icon URL (served by the integration's static path).
+        # Populated eagerly from disk in async_setup so cached icons survive a
+        # restart, then incrementally refreshed as ed.apps.icon replies arrive.
+        self.icon_urls: dict[str, str] = {}
+        self._integration_dir: Path = Path(__file__).parent
+        self._icon_prefetch_task: asyncio.Task | None = None
 
         # Listener callbacks registered by entities
         self._listeners: list[Callable[[], None]] = []
@@ -168,6 +183,7 @@ class SamsungTVCoordinator:
             on_token_received=self._handle_new_token,
             on_keyboard_changed=self._on_keyboard_changed,
             on_ime_content=self._on_ime_content,
+            on_icon_received=self._on_icon_received,
         )
 
         self._app_manager = AppManager(
@@ -277,6 +293,8 @@ class SamsungTVCoordinator:
     async def async_shutdown(self) -> None:
         """Stop timers and close connections.  Called from async_unload_entry."""
         self._cancel_all_timers()
+        if self._icon_prefetch_task and not self._icon_prefetch_task.done():
+            self._icon_prefetch_task.cancel()
         if self._ws:
             await self._ws.async_close()
         if self._session:
@@ -595,13 +613,12 @@ class SamsungTVCoordinator:
             await self._ws.async_request_app_list()
 
     async def async_probe_app_icons(self) -> None:
-        """Diagnostic: emit ``ed.apps.icon`` for every app and log raw replies.
+        """Diagnostic: force-refresh every app icon from the TV.
 
-        Goal of this v0.4.0 research step is to learn what each TV generation
-        (K39 / K45) replies to the community ``ed.apps.icon`` message.  Replies
-        are captured by ``ws_client._capture_icon_reply`` and surface via
-        ``ws_client.last_icon_replies``.  We log a summary here so the service
-        call is visible end-to-end in the HA log.
+        v0.4.0 used this to empirically confirm ``ed.apps.icon`` support on K39
+        and K45.  From v0.4.1 onward the same flow runs automatically in
+        ``_async_prefetch_icons`` whenever the app catalog refreshes, so this
+        service is retained only as a manual reset / troubleshooting aid.
         """
         if self._ws is None or not self._ws.is_connected:
             _LOGGER.warning(
@@ -1012,14 +1029,86 @@ class SamsungTVCoordinator:
         if self._app_manager:
             self._app_manager.update_apps(apps)
             self.apps = self._app_manager.apps
-        _LOGGER.debug("App catalog updated: %d apps", len(self.apps))
+        # Pre-fill icon_url from on-disk cache so UI shows icons immediately on reconnect
+        # without waiting for a fresh ed.apps.icon round-trip.
+        self._populate_icon_urls_from_disk()
+        _LOGGER.debug(
+            "App catalog updated: %d apps (%d with cached icon)",
+            len(self.apps),
+            len(self.icon_urls),
+        )
         self._notify_listeners()
 
-        # Fire HA event so automations / custom cards can react
         self.hass.bus.async_fire(
             f"{self.entry.domain}_apps_updated",
             {"entry_id": self.entry.entry_id, "count": len(self.apps)},
         )
+
+        # Kick off an async icon prefetch for any app whose icon is not on disk.
+        # ed.apps.icon replies arrive out-of-band via _on_icon_received.
+        if self._icon_prefetch_task and not self._icon_prefetch_task.done():
+            self._icon_prefetch_task.cancel()
+        self._icon_prefetch_task = self.hass.async_create_task(
+            self._async_prefetch_icons()
+        )
+
+    def _populate_icon_urls_from_disk(self) -> None:
+        """Look up cached icons for current apps; update ``self.icon_urls``."""
+        for app in self.apps:
+            app_id = app.get("appId", "")
+            if not app_id:
+                continue
+            url = icon_cache.existing_url(self._integration_dir, self._host, app_id)
+            if url:
+                self.icon_urls[app_id] = url
+
+    async def _async_prefetch_icons(self) -> None:
+        """Emit ``ed.apps.icon`` for every app missing a cached icon, paced."""
+        if self._ws is None or not self._ws.is_connected:
+            return
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + _ICON_PREFETCH_BUDGET_SEC
+
+        pending = [
+            a for a in self.apps
+            if a.get("icon_path") and a.get("appId") and a["appId"] not in self.icon_urls
+        ]
+        if not pending:
+            return
+        _LOGGER.debug(
+            "Samsung TV Max [%s]: prefetching %d app icons", self._host, len(pending)
+        )
+        for app in pending:
+            if loop.time() > deadline:
+                _LOGGER.debug(
+                    "Samsung TV Max [%s]: icon prefetch budget exceeded (%ds) — stopping",
+                    self._host,
+                    int(_ICON_PREFETCH_BUDGET_SEC),
+                )
+                return
+            if self._ws is None or not self._ws.is_connected:
+                return
+            with contextlib.suppress(Exception):
+                await self._ws.async_probe_app_icon(app["icon_path"])
+            await asyncio.sleep(_ICON_PROBE_SPACING_SEC)
+
+    async def _on_icon_received(self, app_id: str, image_b64: str) -> None:
+        """ed.apps.icon reply: write PNG and expose URL on the app catalog."""
+        if not app_id or not image_b64:
+            return
+        url = await self.hass.async_add_executor_job(
+            icon_cache.write_icon_b64,
+            self._integration_dir,
+            self._host,
+            app_id,
+            image_b64,
+        )
+        if not url:
+            return
+        if self.icon_urls.get(app_id) == url:
+            return
+        self.icon_urls[app_id] = url
+        self._notify_listeners()
 
     async def _on_keyboard_changed(self, active: bool) -> None:
         """IME state changed — refresh entity attributes so dashboard conditionals react."""

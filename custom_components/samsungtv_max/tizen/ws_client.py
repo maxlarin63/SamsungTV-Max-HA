@@ -84,6 +84,9 @@ OnAppsReceived = Callable[[list[dict]], Coroutine[Any, Any, None]]
 OnTokenReceived = Callable[[str], Coroutine[Any, Any, None]]
 OnKeyboardChanged = Callable[[bool], Coroutine[Any, Any, None]]  # arg: keyboard_active
 OnImeContent = Callable[[str], Coroutine[Any, Any, None]]  # arg: decoded text
+# Icon reply: (app_id, image_base64).  Empty app_id means the iconPath was not
+# mapped back to an installed app (rare; TV replied after the catalog cleared).
+OnIconReceived = Callable[[str, str], Coroutine[Any, Any, None]]
 
 
 class TizenWSClient:
@@ -102,6 +105,7 @@ class TizenWSClient:
         on_token_received: OnTokenReceived | None = None,
         on_keyboard_changed: OnKeyboardChanged | None = None,
         on_ime_content: OnImeContent | None = None,
+        on_icon_received: OnIconReceived | None = None,
     ) -> None:
         self._session = session
         self._host = host
@@ -114,6 +118,7 @@ class TizenWSClient:
         self._on_token_received = on_token_received
         self._on_keyboard_changed = on_keyboard_changed
         self._on_ime_content = on_ime_content
+        self._on_icon_received = on_icon_received
 
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._reader_task: asyncio.Task | None = None
@@ -130,6 +135,10 @@ class TizenWSClient:
         # Diagnostic: raw replies from `ed.apps.icon` probes — iconPath → last payload.
         # Filled opportunistically by the catch-all handler in `_handle_message`.
         self._last_icon_replies: dict[str, Any] = {}
+        # Map iconPath → appId, populated from each installed-app list so icon
+        # replies can be routed back to the owning app.  Stable across reconnects
+        # for the lifetime of this client (cleared on each fresh list).
+        self._icon_path_to_app_id: dict[str, str] = {}
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -540,31 +549,51 @@ class TizenWSClient:
         _LOGGER.debug(
             "Apps received: %d entries (%d with icon_path)", len(apps), with_icon
         )
+        # Refresh the iconPath → appId reverse map so later ed.apps.icon replies
+        # can be routed back to the owning app without another round-trip.
+        self._icon_path_to_app_id = {
+            a["icon_path"]: a["appId"] for a in apps if a.get("icon_path") and a.get("appId")
+        }
         if self._on_apps_received:
             await self._on_apps_received(apps)
 
     def _capture_icon_reply(self, raw: str, msg: dict) -> None:
-        """Log and cache any inbound message that looks like an icon reply.
+        """Route ``ed.apps.icon`` replies to the coordinator and cache diagnostics.
 
-        Logged at INFO (one-shot per iconPath) so it is obvious in the HA log
-        without drowning out normal traffic on repeat messages.  The raw JSON is
-        truncated to 500 chars to avoid dumping large base64 payloads.
+        Both firmware shapes observed (see 0.4.0 probe):
+          * K39: ``{"event":"ed.apps.icon","data":{"iconPath":…,"imageBase64":…}}``
+          * K45: ``{"data":{"iconPath":…,"imageBase64":…}}`` (no ``event`` key)
+
+        Either way the payload we care about is ``data.imageBase64`` keyed by
+        ``data.iconPath``, which we reverse-map to an ``appId`` via the catalog.
         """
         event = msg.get("event", "")
         data = msg.get("data")
 
-        key: str
+        icon_path: str | None = None
+        image_b64: str | None = None
         if isinstance(data, dict):
-            key = str(data.get("iconPath") or data.get("icon") or event or "?")
-        else:
-            key = event or "?"
+            ip = data.get("iconPath") or data.get("icon")
+            if isinstance(ip, str):
+                icon_path = ip
+            ib = data.get("imageBase64") or data.get("base64")
+            if isinstance(ib, str):
+                image_b64 = ib
 
+        key = icon_path or event or "?"
         first = key not in self._last_icon_replies
         self._last_icon_replies[key] = msg
 
-        preview = raw if len(raw) <= 500 else raw[:500] + f"...[+{len(raw) - 500}b]"
-        log = _LOGGER.info if first else _LOGGER.debug
-        log("ed.apps.icon-shaped reply [%s]: %s", key, preview)
+        preview_len = 200 if image_b64 else 500
+        preview = raw if len(raw) <= preview_len else raw[:preview_len] + f"...[+{len(raw) - preview_len}b]"
+        log = _LOGGER.debug if image_b64 and not first else (
+            _LOGGER.info if first else _LOGGER.debug
+        )
+        log("ed.apps.icon reply [%s]: %s", key, preview)
+
+        if image_b64 and icon_path and self._on_icon_received:
+            app_id = self._icon_path_to_app_id.get(icon_path, "")
+            asyncio.ensure_future(self._on_icon_received(app_id, image_b64))
 
     async def _handle_ime_update(self, msg: dict) -> None:
         """ms.remote.imeUpdate — decode base64 field content, forward once per imeStart."""

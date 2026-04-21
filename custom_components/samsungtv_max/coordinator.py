@@ -1102,7 +1102,7 @@ class SamsungTVCoordinator:
             self.apps = self._app_manager.apps
         # Pre-fill icon_url from on-disk cache so UI shows icons immediately on reconnect
         # without waiting for a fresh ed.apps.icon round-trip.
-        self._populate_icon_urls_from_disk()
+        await self.hass.async_add_executor_job(self._populate_icon_urls_from_disk)
         _LOGGER.debug(
             "App catalog updated: %d apps (%d with cached icon)",
             len(self.apps),
@@ -1124,7 +1124,11 @@ class SamsungTVCoordinator:
         )
 
     def _populate_icon_urls_from_disk(self) -> None:
-        """Look up cached icons for current apps; update ``self.icon_urls``."""
+        """Look up cached icons for current apps; update ``self.icon_urls``.
+
+        Touches the filesystem — must run in the executor (called via
+        ``async_add_executor_job`` from ``_on_apps_received``).
+        """
         for app in self.apps:
             app_id = app.get("appId", "")
             if not app_id:

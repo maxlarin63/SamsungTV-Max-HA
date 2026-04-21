@@ -88,6 +88,7 @@ OnDisconnected = Callable[[bool], Coroutine[Any, Any, None]]  # arg: was_unautho
 OnAppsReceived = Callable[[list[dict]], Coroutine[Any, Any, None]]
 OnTokenReceived = Callable[[str], Coroutine[Any, Any, None]]
 OnKeyboardChanged = Callable[[bool], Coroutine[Any, Any, None]]  # arg: keyboard_active
+OnTouchChanged = Callable[[bool], Coroutine[Any, Any, None]]  # arg: touch_mode_active
 OnImeContent = Callable[[str], Coroutine[Any, Any, None]]  # arg: decoded text
 # Icon reply: (app_id, image_base64).  Empty app_id means the iconPath was not
 # mapped back to an installed app (rare; TV replied after the catalog cleared).
@@ -109,6 +110,7 @@ class TizenWSClient:
         on_apps_received: OnAppsReceived | None = None,
         on_token_received: OnTokenReceived | None = None,
         on_keyboard_changed: OnKeyboardChanged | None = None,
+        on_touch_changed: OnTouchChanged | None = None,
         on_ime_content: OnImeContent | None = None,
         on_icon_received: OnIconReceived | None = None,
     ) -> None:
@@ -122,6 +124,7 @@ class TizenWSClient:
         self._on_apps_received = on_apps_received
         self._on_token_received = on_token_received
         self._on_keyboard_changed = on_keyboard_changed
+        self._on_touch_changed = on_touch_changed
         self._on_ime_content = on_ime_content
         self._on_icon_received = on_icon_received
 
@@ -436,10 +439,14 @@ class TizenWSClient:
         elif event == WS_EVENT_TOUCH_ENABLE:
             self._touch_mode = True
             _LOGGER.debug("Samsung TV Max WS [%s]: touch mode ON (d-pad → pointer)", self._host)
+            if self._on_touch_changed:
+                await self._on_touch_changed(True)
 
         elif event == WS_EVENT_TOUCH_DISABLE:
             self._touch_mode = False
             _LOGGER.debug("Samsung TV Max WS [%s]: touch mode OFF (d-pad → keys)", self._host)
+            if self._on_touch_changed:
+                await self._on_touch_changed(False)
 
         elif event == WS_EVENT_IME_START:
             self._keyboard_active = True

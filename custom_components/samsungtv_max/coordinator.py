@@ -132,6 +132,12 @@ class SamsungTVCoordinator:
         # App catalog populated after WS connect
         self.apps: list[dict] = []
         self.current_app: str | None = None
+        # Set by ``ms.remote.touchEnable`` — indicates the TV's native browser
+        # (``org.tizen.browser``) is in the foreground.  REST cannot resolve
+        # type-4 native apps reliably, so we use this push signal to surface
+        # the browser as the current app and hold that label until
+        # ``ms.remote.touchDisable`` fires.
+        self._touch_mode_active: bool = False
         # appId → cached icon URL (served by the integration's static path).
         # Populated eagerly from disk in async_setup so cached icons survive a
         # restart, then incrementally refreshed as ed.apps.icon replies arrive.
@@ -197,6 +203,7 @@ class SamsungTVCoordinator:
             on_apps_received=self._on_apps_received,
             on_token_received=self._handle_new_token,
             on_keyboard_changed=self._on_keyboard_changed,
+            on_touch_changed=self._on_touch_changed,
             on_ime_content=self._on_ime_content,
             on_icon_received=self._on_icon_received,
         )
@@ -917,12 +924,19 @@ class SamsungTVCoordinator:
         asyncio.ensure_future(self._async_refresh_current_app())
 
     async def _async_refresh_current_app(self) -> None:
-        """Resolve the running app via REST and publish changes to listeners."""
+        """Resolve the running app via REST and publish changes to listeners.
+
+        When the TV's touch mode is active the browser is foregrounded; REST
+        cannot resolve type-4 native apps, so we keep the browser label set
+        by ``_on_touch_changed`` rather than overwrite it from the sweep.
+        """
         if (
             self._app_manager is None
             or not self.caps.meta_tag_nav
             or self.power_state != PowerState.ON
         ):
+            return
+        if self._touch_mode_active:
             return
         name = await self._app_manager.async_get_running_app()
         if name == self.current_app:
@@ -935,6 +949,19 @@ class SamsungTVCoordinator:
         )
         self.current_app = name
         self._notify_listeners()
+
+    def _browser_display_name(self) -> str:
+        """Name to show while the Tizen browser is foreground.
+
+        Prefer the name from the installed-app catalog (localised by firmware,
+        e.g. "Internet" on EU models), fall back to ``"Internet"``.
+        """
+        for app in self.apps:
+            if app.get("appId") == "org.tizen.browser":
+                name = app.get("name")
+                if isinstance(name, str) and name:
+                    return name
+        return "Internet"
 
     # ── OFF slow poll (auto-detect TV waking up) ──────────────────────────────
 
@@ -1189,6 +1216,29 @@ class SamsungTVCoordinator:
         """IME state changed — refresh entity attributes so dashboard conditionals react."""
         _LOGGER.debug("Samsung TV Max [%s]: keyboard_active → %s", self._host, active)
         self._notify_listeners()
+
+    async def _on_touch_changed(self, active: bool) -> None:
+        """Touch/pointer mode toggled — Tizen only enables it for the browser.
+
+        We use this as the authoritative foreground signal for the native
+        browser since REST cannot resolve ``org.tizen.browser``.  On enable we
+        surface the browser name immediately; on disable we schedule a REST
+        sweep so the label catches up with whatever app is now foreground.
+        """
+        self._touch_mode_active = active
+        if active:
+            browser = self._browser_display_name()
+            if self.current_app != browser:
+                _LOGGER.debug(
+                    "Samsung TV Max [%s]: current_app %s → %s (touch/browser)",
+                    self._host,
+                    self.current_app,
+                    browser,
+                )
+                self.current_app = browser
+                self._notify_listeners()
+        else:
+            self._maybe_refresh_current_app_soon()
 
     async def _on_ime_content(self, text: str) -> None:
         """First imeUpdate after imeStart — pre-fill the shared input_text helper."""

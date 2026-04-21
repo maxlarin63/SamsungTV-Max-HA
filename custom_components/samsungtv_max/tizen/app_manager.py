@@ -179,8 +179,20 @@ class AppManager:
     async def async_get_running_app(self) -> str | None:
         """Poll each known app via REST GET /api/v2/applications/{id}.
 
-        Returns the *name* of the first running app found, or None.
-        Requires caps.meta_tag_nav == True.  Skips if app list is empty.
+        Returns the *name* of the foregrounded app or None.
+
+        Samsung's REST endpoint reports ``running: true`` for every app
+        currently loaded in memory, not just the focused one — so relying on
+        ``running`` alone makes the first-loaded app appear "sticky" even
+        after the user switches to something else.  We therefore:
+          1. Prefer ``visible: true`` (foreground on Tizen firmwares that
+             expose the field).
+          2. Fall back to ``running: true`` only when exactly one app reports
+             it — multiple ``running`` entries mean the TV has several apps
+             loaded and we cannot disambiguate, so returning ``None`` is
+             better than showing a stale name.
+
+        Requires ``caps.meta_tag_nav == True``.  Skips if app list is empty.
         """
         if not self._caps.meta_tag_nav or not self._apps:
             return None
@@ -190,12 +202,18 @@ class AppManager:
             for a in self._apps
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        for name in results:
-            if isinstance(name, str):
-                return name
+        hits = [r for r in results if isinstance(r, dict)]
+
+        visible = [r for r in hits if r.get("visible")]
+        if visible:
+            return visible[0]["name"]
+
+        running = [r for r in hits if r.get("running")]
+        if len(running) == 1:
+            return running[0]["name"]
         return None
 
-    async def _check_app_running(self, app_id: str, name: str) -> str | None:
+    async def _check_app_running(self, app_id: str, name: str) -> dict | None:
         url = (
             f"http://{self._host}:{TIZEN_REST_PORT}/api/v2/applications/{app_id}"
         )
@@ -204,8 +222,14 @@ class AppManager:
                 url, timeout=aiohttp.ClientTimeout(total=2)
             ) as resp:
                 data = await resp.json(content_type=None)
-                if data.get("running") is True:
-                    return name
+                running = bool(data.get("running"))
+                visible = bool(data.get("visible"))
+                if running or visible:
+                    _LOGGER.debug(
+                        "App status %s (%s): running=%s visible=%s",
+                        name, app_id, running, visible,
+                    )
+                    return {"name": name, "running": running, "visible": visible}
         except Exception:  # noqa: BLE001
             pass
         return None

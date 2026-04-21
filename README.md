@@ -213,18 +213,25 @@ After a cold reboot, the workspace uses `.venv` automatically: **Python: Select 
 
 ### Setup
 
+Use **Python 3.12** — `pytest-homeassistant-custom-component` pulls in
+`lru-dict`, which has no prebuilt Windows wheel for 3.13 yet (would fall back
+to a C source build that requires MSVC Build Tools). CI also pins 3.12.
+
 **Windows (PowerShell):**
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install pytest pytest-asyncio pytest-homeassistant-custom-component pytest-socket ruff aiohttp wakeonlan voluptuous
+pip install -r requirements-dev.txt
 ```
 
 **Linux / macOS:**
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install pytest pytest-asyncio pytest-homeassistant-custom-component pytest-socket ruff aiohttp wakeonlan voluptuous
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
 ```
+
+`requirements-dev.txt` mirrors the exact install list used by
+`.github/workflows/validate.yml`, so a green local run == a green CI run.
 
 ### Frontend (custom card)
 

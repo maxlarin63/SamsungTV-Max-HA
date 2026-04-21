@@ -58,8 +58,6 @@ class SamsungTVMaxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._mac: str = ""
         self._generation: str = ""
         self._token: str = ""
-        self._pair_attempts: int = 0
-        self._session: aiohttp.ClientSession | None = None
 
     # ── Step 1: host entry ────────────────────────────────────────────────────
 
@@ -100,7 +98,6 @@ class SamsungTVMaxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> FlowResult:
         """Attempt WS connect.  If unauthorized, show form prompting user to allow on TV."""
         errors: dict[str, str] = {}
-        self._pair_attempts += 1
 
         result = await self._async_attempt_ws_pair()
 
@@ -136,9 +133,9 @@ class SamsungTVMaxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 aiohttp.ClientSession(connector=connector) as session,
                 session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp,
             ):
-                    if resp.status != 200:
-                        return "unsupported_model"
-                    data = await resp.json(content_type=None)
+                if resp.status != 200:
+                    return "unsupported_model"
+                data = await resp.json(content_type=None)
         except aiohttp.ClientConnectionError:
             return "cannot_connect"
         except TimeoutError:

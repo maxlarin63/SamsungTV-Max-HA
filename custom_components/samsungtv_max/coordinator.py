@@ -25,7 +25,6 @@ import contextlib
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import aiohttp
 import wakeonlan
@@ -41,6 +40,7 @@ from .const import (
     CONF_MODEL,
     CONF_TOKEN,
     DOMAIN,
+    EVENT_APPS_UPDATED,
     EVENT_PAIRING_REQUIRED,
     KEY_POWER,
     OFF_SLOW_POLL,
@@ -71,9 +71,6 @@ from .util_mac import (
     normalize_tv_ipv4_host,
     normalize_wol_mac,
 )
-
-if TYPE_CHECKING:
-    pass
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -122,6 +119,9 @@ class SamsungTVCoordinator:
         self._mac: str = entry.data.get(CONF_MAC, "")
         self._token: str = entry.data.get(CONF_TOKEN, "")
         self._model: str = entry.data.get(CONF_MODEL, "")
+        # Generation prefix (e.g. "19_", "") from config entry; falls back to
+        # extract_generation(model) on REST model merges when model is present.
+        self._generation: str = entry.data.get(CONF_GENERATION, "")
 
         self.caps: TizenCaps = detect_caps(self._model)
         self.power_state: PowerState = PowerState.OFF
@@ -1138,7 +1138,7 @@ class SamsungTVCoordinator:
         self._notify_listeners()
 
         self.hass.bus.async_fire(
-            f"{self.entry.domain}_apps_updated",
+            EVENT_APPS_UPDATED,
             {"entry_id": self.entry.entry_id, "count": len(self.apps)},
         )
 
@@ -1320,8 +1320,3 @@ class SamsungTVCoordinator:
         if self._app_manager:
             return self._app_manager.app_names
         return []
-
-    def resolve_app_id(self, name_or_id: str) -> str | None:
-        if self._app_manager:
-            return self._app_manager.resolve_app_id(name_or_id)
-        return None

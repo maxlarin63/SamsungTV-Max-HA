@@ -156,12 +156,12 @@ class SamsungTVRemote(RemoteEntity):
         Supports:
           command: ["KEY_VOLUMEUP", "KEY_MUTE"]
           num_repeats: 3  (applies to each command)
-          delay_secs: 0.5  (override inter-key delay; default TIZEN_KEY_DELAY)
+
+        ``delay_secs`` is accepted by HA's remote service schema but ignored
+        here: ``KeySender`` owns the inter-key pacing (``TIZEN_KEY_DELAY``) so
+        that overlapping services cannot race with each other.
         """
         num_repeats: int = int(kwargs.get("num_repeats", 1))
-        # delay_secs is informational here — KeySender uses its own delay
-        # but we respect num_repeats per command via enqueue(count=)
-
         for key in command:
             # command items may be space-separated key lists (HA convention)
             for single_key in key.split():

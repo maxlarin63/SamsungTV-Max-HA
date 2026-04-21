@@ -27,7 +27,6 @@ class KeySender:
         self._delay = delay
         self._queue: deque[str] = deque()
         self._task: asyncio.Task | None = None
-        self._running = False
 
     def enqueue(self, key: str, count: int = 1) -> None:
         """Add *count* copies of *key* to the send queue."""

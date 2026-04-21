@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "samsungtv_max"
 DEFAULT_NAME = "Samsung TV"
-INTEGRATION_VERSION = "0.4.6"
+INTEGRATION_VERSION = "0.4.7"
 
 # ── Network ───────────────────────────────────────────────────────────────────
 TIZEN_WS_PORT = 8002          # WebSocket remote control (wss)
@@ -13,7 +13,6 @@ WS_APP_NAME = "HomeAssistant"  # Identifies HA in the token pairing dialog on TV
 
 # ── Config-entry keys ─────────────────────────────────────────────────────────
 CONF_HOST = "host"
-CONF_PORT = "port"
 CONF_TOKEN = "token"
 CONF_MAC = "mac"
 CONF_MODEL = "model"          # stored for info; e.g. "QE49Q67RATXXH"
@@ -125,7 +124,6 @@ KEY_BLUE = "KEY_BLUE"
 WS_EVENT_CHANNEL_CONNECT = "ms.channel.connect"
 WS_EVENT_CHANNEL_UNAUTHORIZED = "ms.channel.unauthorized"
 WS_EVENT_CHANNEL_DISCONNECT = "ms.channel.disconnect"
-WS_EVENT_ERROR = "ms.error"
 WS_EVENT_INSTALLED_APP = "ed.installedApp.get"
 WS_EVENT_TOUCH_ENABLE = "ms.remote.touchEnable"
 WS_EVENT_TOUCH_DISABLE = "ms.remote.touchDisable"
@@ -136,12 +134,8 @@ WS_METHOD_REMOTE_CONTROL = "ms.remote.control"
 WS_METHOD_CHANNEL_EMIT = "ms.channel.emit"
 
 # ── HA event names (fired on the event bus) ───────────────────────────────────
-EVENT_KEY_SENT = f"{DOMAIN}_key_sent"
-EVENT_APP_LAUNCHED = f"{DOMAIN}_app_launched"
 EVENT_APPS_UPDATED = f"{DOMAIN}_apps_updated"
 EVENT_PAIRING_REQUIRED = f"{DOMAIN}_pairing_required"
-EVENT_IME_START = f"{DOMAIN}_ime_start"
-EVENT_IME_END = f"{DOMAIN}_ime_end"
 
 # ── Service names ─────────────────────────────────────────────────────────────
 SERVICE_SEND_KEY = "send_key"

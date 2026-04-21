@@ -82,6 +82,7 @@ def _looks_icon_shaped(msg: dict) -> bool:
         return True
     return False
 
+
 # Callbacks
 OnConnected = Callable[[], Coroutine[Any, Any, None]]
 OnDisconnected = Callable[[bool], Coroutine[Any, Any, None]]  # arg: was_unauthorized
@@ -201,8 +202,8 @@ class TizenWSClient:
         try:
             ws = await self._session.ws_connect(
                 url,
-                ssl=False,      # TV uses self-signed cert
-                heartbeat=None, # we handle keepalive ourselves
+                ssl=False,       # TV uses self-signed cert
+                heartbeat=None,  # we handle keepalive ourselves
                 timeout=aiohttp.ClientWSTimeout(ws_close=10),
             )
         except Exception as exc:  # noqa: BLE001
@@ -290,11 +291,17 @@ class TizenWSClient:
     async def async_probe_app_icon(self, icon_path: str) -> bool:
         """Ask the TV to return the icon bytes behind an internal iconPath.
 
-        Diagnostic-only.  Community reports of ``ed.apps.icon`` are inconsistent:
-        some firmwares reply with the icon (shape undocumented), others silently
-        ignore the request.  Any inbound message that looks icon-shaped is logged
-        verbatim by ``_handle_message`` and captured in ``self._last_icon_replies``
-        so we can decide the real icon pipeline empirically.
+        Used in two places:
+          * ``probe_app_icons`` diagnostic service — firmwares vary, some reply
+            with icon bytes, some silently ignore; the service surfaces the
+            raw reply shape so new models can be triaged.
+          * Background icon prefetch in ``coordinator._async_prefetch_icons``
+            — production path that fills the disk cache served to the card.
+
+        Icon-shaped inbound frames are routed by ``_looks_icon_shaped`` +
+        ``_capture_icon_reply`` into the registered ``on_icon_received``
+        callback and also retained verbatim in ``self._last_icon_replies`` for
+        the diagnostic service.
         """
         return await self._send_json(
             {

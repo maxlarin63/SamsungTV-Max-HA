@@ -112,3 +112,18 @@ send_text:
       example: "https://www.google.com"
       selector:
         text:
+
+probe_app_icons:
+  name: Probe App Icons (diagnostic)
+  description: >
+    Send an ed.apps.icon WebSocket message for every installed app whose payload
+    contained an internal icon path, then log any inbound replies verbatim.
+    Research-only — used to decide whether TV-native app icons are feasible on a
+    given firmware.  Check the Home Assistant log (filter on samsungtv_max) for
+    the captured payloads after running this service.
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Target config entry ID. Omit to broadcast to all Samsung TV Max entries.
+      selector:
+        text:

@@ -110,6 +110,7 @@ class SamsungTVRemote(RemoteEntity):
                 "id": a.get("appId", ""),
                 "name": a.get("name", ""),
                 "type": a.get("app_type", 2),
+                "icon_path": a.get("icon_path"),
             }
             for a in self._coordinator.apps
             if a.get("is_visible", True)

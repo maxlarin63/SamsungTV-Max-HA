@@ -18,6 +18,7 @@ from .const import (
     SERVICE_ENUMERATE_APPS,
     SERVICE_HOLD_KEY,
     SERVICE_LAUNCH_APP,
+    SERVICE_PROBE_APP_ICONS,
     SERVICE_SEND_KEY,
     SERVICE_SEND_TEXT,
 )
@@ -254,4 +255,21 @@ def _register_services(hass: HomeAssistant) -> None:
                     ),
                 }
             ),
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_PROBE_APP_ICONS):
+
+        async def handle_probe_app_icons(call: ServiceCall) -> None:
+            entry_id = call.data.get("entry_id")
+            for entry in hass.config_entries.async_entries(DOMAIN):
+                if entry_id and entry.entry_id != entry_id:
+                    continue
+                coordinator: SamsungTVCoordinator = entry.runtime_data
+                await coordinator.async_probe_app_icons()
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_PROBE_APP_ICONS,
+            handle_probe_app_icons,
+            schema=vol.Schema({vol.Optional("entry_id"): str}),
         )

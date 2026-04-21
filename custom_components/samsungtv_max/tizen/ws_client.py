@@ -37,6 +37,7 @@ from ..const import (
     TIZEN_TOUCH_DPAD_THROTTLE_SEC,
     TIZEN_WS_PORT,
     WS_APP_NAME,
+    WS_EVENT_APPS_ICON,
     WS_EVENT_CHANNEL_CONNECT,
     WS_EVENT_CHANNEL_DISCONNECT,
     WS_EVENT_CHANNEL_UNAUTHORIZED,
@@ -58,7 +59,23 @@ _TOUCH_MOVE_DELTAS: dict[str, tuple[int, int]] = {
 }
 _TOUCH_QUEUE_BYPASS_KEYS: frozenset[str] = frozenset(_TOUCH_MOVE_DELTAS) | {KEY_ENTER}
 
+# Key names that suggest an inbound message carries icon data or metadata.
+_ICON_HINT_KEYS: frozenset[str] = frozenset(
+    {"iconPath", "icon", "image", "imageData", "base64", "data_url"}
+)
+
 _LOGGER = logging.getLogger(__name__)
+
+
+def _looks_icon_shaped(msg: dict) -> bool:
+    """True if *msg* looks like it may carry icon bytes or an iconPath echo."""
+    data = msg.get("data")
+    if isinstance(data, dict):
+        if _ICON_HINT_KEYS.intersection(data.keys()):
+            return True
+    elif isinstance(data, str) and data.startswith("data:image"):
+        return True
+    return False
 
 # Callbacks
 OnConnected = Callable[[], Coroutine[Any, Any, None]]
@@ -110,6 +127,9 @@ class TizenWSClient:
         self._keyboard_active = False
         self._ime_type: str | None = None
         self._ime_initial_content_forwarded = False
+        # Diagnostic: raw replies from `ed.apps.icon` probes — iconPath → last payload.
+        # Filled opportunistically by the catch-all handler in `_handle_message`.
+        self._last_icon_replies: dict[str, Any] = {}
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -249,6 +269,31 @@ class TizenWSClient:
                 },
             }
         )
+
+    async def async_probe_app_icon(self, icon_path: str) -> bool:
+        """Ask the TV to return the icon bytes behind an internal iconPath.
+
+        Diagnostic-only.  Community reports of ``ed.apps.icon`` are inconsistent:
+        some firmwares reply with the icon (shape undocumented), others silently
+        ignore the request.  Any inbound message that looks icon-shaped is logged
+        verbatim by ``_handle_message`` and captured in ``self._last_icon_replies``
+        so we can decide the real icon pipeline empirically.
+        """
+        return await self._send_json(
+            {
+                "method": WS_METHOD_CHANNEL_EMIT,
+                "params": {
+                    "event": WS_EVENT_APPS_ICON,
+                    "to": "host",
+                    "data": {"iconPath": icon_path},
+                },
+            }
+        )
+
+    @property
+    def last_icon_replies(self) -> dict[str, Any]:
+        """Read-only view of captured `ed.apps.icon` replies (diagnostic)."""
+        return dict(self._last_icon_replies)
 
     async def async_launch_app_ws(self, app_id: str) -> bool:
         """Launch a native app (app_type 4) via WS deep-link.  Port of __launchTizenAppWs."""
@@ -406,6 +451,12 @@ class TizenWSClient:
         elif event == WS_EVENT_INSTALLED_APP:
             await self._handle_installed_apps(msg)
 
+        # Diagnostic catch-all: any message that looks icon-shaped is logged
+        # verbatim and captured, so we can decide the real icon pipeline after
+        # running `samsungtv_max.probe_app_icons` on both K39 and K45.
+        if event.startswith("ed.apps.") or _looks_icon_shaped(msg):
+            self._capture_icon_reply(raw, msg)
+
     async def _handle_channel_connect(self, msg: dict) -> None:
         """ms.channel.connect — extract token, fire on_connected."""
         self._touch_mode = False
@@ -460,7 +511,14 @@ class TizenWSClient:
             await self._on_connected()
 
     async def _handle_installed_apps(self, msg: dict) -> None:
-        """ed.installedApp.get response — parse and forward app list."""
+        """ed.installedApp.get response — parse and forward app list.
+
+        The TV's payload often includes an internal ``icon`` filesystem path
+        (e.g. ``/opt/share/webappservice/apps_icon/FirstScreen/.../250x250.png``)
+        which is only retrievable via a follow-up ``ed.apps.icon`` WS emit.  We
+        carry it through as ``icon_path`` for diagnostic probing and for the
+        future app-picker popup.
+        """
         try:
             apps_raw = msg.get("data", {}).get("data", [])
             apps = [
@@ -469,6 +527,7 @@ class TizenWSClient:
                     "name": a.get("name", ""),
                     "app_type": a.get("app_type", 2),
                     "is_visible": a.get("is_visible", True),
+                    "icon_path": a.get("icon"),
                 }
                 for a in apps_raw
                 if a.get("appId")
@@ -477,9 +536,35 @@ class TizenWSClient:
             _LOGGER.debug("App list parse error: %s", exc)
             return
 
-        _LOGGER.debug("Apps received: %d entries", len(apps))
+        with_icon = sum(1 for a in apps if a.get("icon_path"))
+        _LOGGER.debug(
+            "Apps received: %d entries (%d with icon_path)", len(apps), with_icon
+        )
         if self._on_apps_received:
             await self._on_apps_received(apps)
+
+    def _capture_icon_reply(self, raw: str, msg: dict) -> None:
+        """Log and cache any inbound message that looks like an icon reply.
+
+        Logged at INFO (one-shot per iconPath) so it is obvious in the HA log
+        without drowning out normal traffic on repeat messages.  The raw JSON is
+        truncated to 500 chars to avoid dumping large base64 payloads.
+        """
+        event = msg.get("event", "")
+        data = msg.get("data")
+
+        key: str
+        if isinstance(data, dict):
+            key = str(data.get("iconPath") or data.get("icon") or event or "?")
+        else:
+            key = event or "?"
+
+        first = key not in self._last_icon_replies
+        self._last_icon_replies[key] = msg
+
+        preview = raw if len(raw) <= 500 else raw[:500] + f"...[+{len(raw) - 500}b]"
+        log = _LOGGER.info if first else _LOGGER.debug
+        log("ed.apps.icon-shaped reply [%s]: %s", key, preview)
 
     async def _handle_ime_update(self, msg: dict) -> None:
         """ms.remote.imeUpdate — decode base64 field content, forward once per imeStart."""

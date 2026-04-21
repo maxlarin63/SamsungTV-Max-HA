@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "samsungtv_max"
 DEFAULT_NAME = "Samsung TV"
-INTEGRATION_VERSION = "0.3.4"
+INTEGRATION_VERSION = "0.4.0"
 
 # ── Network ───────────────────────────────────────────────────────────────────
 TIZEN_WS_PORT = 8002          # WebSocket remote control (wss)
@@ -131,6 +131,7 @@ WS_EVENT_TOUCH_ENABLE = "ms.remote.touchEnable"
 WS_EVENT_TOUCH_DISABLE = "ms.remote.touchDisable"
 WS_EVENT_IME_START = "ms.remote.imeStart"
 WS_EVENT_IME_END = "ms.remote.imeEnd"
+WS_EVENT_APPS_ICON = "ed.apps.icon"
 WS_METHOD_REMOTE_CONTROL = "ms.remote.control"
 WS_METHOD_CHANNEL_EMIT = "ms.channel.emit"
 
@@ -148,6 +149,7 @@ SERVICE_LAUNCH_APP = "launch_app"
 SERVICE_ENUMERATE_APPS = "enumerate_apps"
 SERVICE_SEND_TEXT = "send_text"
 SERVICE_HOLD_KEY = "hold_key"
+SERVICE_PROBE_APP_ICONS = "probe_app_icons"
 
 # ── Platforms ─────────────────────────────────────────────────────────────────
 PLATFORMS = ["binary_sensor", "media_player", "remote"]

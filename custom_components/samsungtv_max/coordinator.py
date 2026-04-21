@@ -594,6 +594,54 @@ class SamsungTVCoordinator:
         if self._ws and self._ws.is_connected and self.caps.has_ghost_api:
             await self._ws.async_request_app_list()
 
+    async def async_probe_app_icons(self) -> None:
+        """Diagnostic: emit ``ed.apps.icon`` for every app and log raw replies.
+
+        Goal of this v0.4.0 research step is to learn what each TV generation
+        (K39 / K45) replies to the community ``ed.apps.icon`` message.  Replies
+        are captured by ``ws_client._capture_icon_reply`` and surface via
+        ``ws_client.last_icon_replies``.  We log a summary here so the service
+        call is visible end-to-end in the HA log.
+        """
+        if self._ws is None or not self._ws.is_connected:
+            _LOGGER.warning(
+                "Samsung TV Max [%s]: probe_app_icons: WS not connected", self._host
+            )
+            return
+        if not self.apps:
+            _LOGGER.warning(
+                "Samsung TV Max [%s]: probe_app_icons: app list is empty", self._host
+            )
+            return
+
+        before = len(self._ws.last_icon_replies)
+        probed = 0
+        skipped = 0
+        for app in self.apps:
+            icon_path = app.get("icon_path")
+            if not icon_path:
+                skipped += 1
+                continue
+            await self._ws.async_probe_app_icon(icon_path)
+            probed += 1
+            await asyncio.sleep(0.2)
+
+        # Collection window — most firmwares reply within a second or two.
+        await asyncio.sleep(5.0)
+        after = self._ws.last_icon_replies
+        new_replies = len(after) - before
+        sample = next(iter(after.items()), None)
+        _LOGGER.info(
+            "Samsung TV Max [%s]: probe_app_icons: probed=%d skipped=%d new_replies=%d "
+            "total_replies=%d sample=%s",
+            self._host,
+            probed,
+            skipped,
+            new_replies,
+            len(after),
+            (sample[0], str(sample[1])[:200]) if sample else None,
+        )
+
     # ── Power FSM ─────────────────────────────────────────────────────────────
 
     async def _set_power_state(self, new_state: PowerState) -> None:

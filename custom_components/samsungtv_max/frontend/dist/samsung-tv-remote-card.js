@@ -394,7 +394,13 @@ ${_rowHtml(DPAD_BOT, "row-3")}
         if (this._statusLine) {
             const model = attrs.tv_model || "Samsung TV";
             const power = attrs.power_state ?? "unknown";
-            this._statusLine.textContent = `${model} \u00b7 ${power}`;
+            // `current_activity` is RemoteEntity's standard attribute for the
+            // running app name; hidden when unknown or TV is not on.
+            const activity = attrs.current_activity || "";
+            const parts = [model, power];
+            if (activity && power === "on")
+                parts.push(activity);
+            this._statusLine.textContent = parts.join(" \u00b7 ");
         }
         if (this._appsModalOpen) {
             this._renderAppsGrid();

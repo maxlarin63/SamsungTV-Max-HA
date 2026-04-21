@@ -85,6 +85,19 @@ WOL_UDP_PORT = 9  # same default as HC3 / wakeonlan; must match TV WoL setting
 _ICON_PROBE_SPACING_SEC = 0.15
 _ICON_PREFETCH_BUDGET_SEC = 12.0
 
+# Current-app REST polling cadence.  v0.4.2 diagnostics confirmed neither K39
+# nor K45 pushes a focus / launch event, so we piggyback on liveness (20 s)
+# and kick a one-shot refresh shortly after any action that can change focus.
+# The short delay lets the TV finish its app splash before we probe.
+_CURRENT_APP_REFRESH_DELAY = 3.0
+
+# Key presses that can change which app is in the foreground.  Volume /
+# channel / cursor keys are excluded intentionally — they don't change focus
+# and would just add REST traffic (one sweep = one GET per installed app).
+_APP_REFRESH_KEYS: frozenset[str] = frozenset(
+    {"KEY_HOME", "KEY_MENU", "KEY_SOURCE", "KEY_EXIT", "KEY_RETURN"}
+)
+
 
 def _execute_wol_round(
     mac: str, destinations: tuple[tuple[str, int], ...], round_idx: int
@@ -125,6 +138,8 @@ class SamsungTVCoordinator:
         self.icon_urls: dict[str, str] = {}
         self._integration_dir: Path = Path(__file__).parent
         self._icon_prefetch_task: asyncio.Task | None = None
+        # Debounce timer for REST current-app polling.  See _maybe_refresh_current_app_soon.
+        self._current_app_timer: asyncio.TimerHandle | None = None
 
         # Listener callbacks registered by entities
         self._listeners: list[Callable[[], None]] = []
@@ -560,6 +575,8 @@ class SamsungTVCoordinator:
         if self.power_state != PowerState.ON:
             _LOGGER.debug("Key %s ignored — TV not ON (%s)", key, self.power_state)
             return
+        if key in _APP_REFRESH_KEYS:
+            self._maybe_refresh_current_app_soon()
         ws = self._ws
         if ws is not None and ws.should_bypass_key_queue(key):
             asyncio.ensure_future(self._async_touch_mode_key_burst(key, max(1, count)))
@@ -605,7 +622,10 @@ class SamsungTVCoordinator:
         """Launch an app by name or ID; returns False if not possible."""
         if self._app_manager is None or self.power_state != PowerState.ON:
             return False
-        return await self._app_manager.async_launch_by_name(name_or_id)
+        ok = await self._app_manager.async_launch_by_name(name_or_id)
+        if ok:
+            self._maybe_refresh_current_app_soon()
+        return ok
 
     async def async_enumerate_apps(self) -> None:
         """Re-request the installed-app list from the TV."""
@@ -678,6 +698,11 @@ class SamsungTVCoordinator:
         # Cancel timers that don't apply to new state
         if new_state != PowerState.TURNING_OFF:
             self._cancel_timer("turning_off")
+
+        # Any state that isn't ON cannot have a running app; clear optimistically
+        # so the card doesn't flash stale data during the TURNING_OFF window.
+        if new_state != PowerState.ON and self.current_app is not None:
+            self.current_app = None
 
         if new_state == PowerState.ON:
             self._dismiss_pairing_notification()
@@ -860,12 +885,56 @@ class SamsungTVCoordinator:
                         )
                         await self._set_power_state(PowerState.OFF)
                         return
-                await self._start_liveness()  # schedule next
+                # Piggyback current-app refresh on every liveness tick so the
+                # card catches focus changes made from the physical remote
+                # (which don't fire any WS push we can observe).
+                await self._async_refresh_current_app()
+                await self._start_liveness()
                 return
         except Exception:  # noqa: BLE001
             pass
         _LOGGER.info("Samsung TV Max [%s]: liveness lost — marking off", self._host)
         await self._set_power_state(PowerState.OFF)
+
+    # ── Current app (REST polling on TVs with meta_tag_nav) ──────────────────
+
+    def _maybe_refresh_current_app_soon(self) -> None:
+        """Schedule a one-shot REST sweep after a short settle delay.
+
+        Called when the user launches an app or presses a focus-changing key.
+        Debounced so a burst of KEY_HOME presses only triggers one sweep.
+        TVs without ``caps.meta_tag_nav`` silently skip (e.g. 16_* prefix).
+        """
+        if not self.caps.meta_tag_nav or self.power_state != PowerState.ON:
+            return
+        self._cancel_timer("current_app")
+        self._current_app_timer = self.hass.loop.call_later(
+            _CURRENT_APP_REFRESH_DELAY, self._current_app_tick_sync
+        )
+
+    def _current_app_tick_sync(self) -> None:
+        self._current_app_timer = None
+        asyncio.ensure_future(self._async_refresh_current_app())
+
+    async def _async_refresh_current_app(self) -> None:
+        """Resolve the running app via REST and publish changes to listeners."""
+        if (
+            self._app_manager is None
+            or not self.caps.meta_tag_nav
+            or self.power_state != PowerState.ON
+        ):
+            return
+        name = await self._app_manager.async_get_running_app()
+        if name == self.current_app:
+            return
+        _LOGGER.debug(
+            "Samsung TV Max [%s]: current_app %s → %s",
+            self._host,
+            self.current_app,
+            name,
+        )
+        self.current_app = name
+        self._notify_listeners()
 
     # ── OFF slow poll (auto-detect TV waking up) ──────────────────────────────
 
@@ -973,6 +1042,8 @@ class SamsungTVCoordinator:
         # Request installed apps if the TV supports it
         if self.caps.has_ghost_api and self._ws:
             await self._ws.async_request_app_list()
+        # Seed current_app so the card reflects what's already on screen.
+        self._maybe_refresh_current_app_soon()
 
     async def _async_ws_reconnect_after_drop(self) -> None:
         """Reconnect WebSocket after an unexpected drop while power FSM says ON."""
@@ -1180,7 +1251,14 @@ class SamsungTVCoordinator:
             setattr(self, attr, None)
 
     def _cancel_all_timers(self) -> None:
-        for name in ("wake", "liveness", "off_poll", "turning_off", "unauth"):
+        for name in (
+            "wake",
+            "liveness",
+            "off_poll",
+            "turning_off",
+            "unauth",
+            "current_app",
+        ):
             self._cancel_timer(name)
 
     @property

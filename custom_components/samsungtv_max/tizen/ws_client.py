@@ -20,7 +20,6 @@ import base64
 import contextlib
 import json
 import logging
-import re
 from collections.abc import Callable, Coroutine
 from typing import Any
 from urllib.parse import urlencode
@@ -65,59 +64,22 @@ _ICON_HINT_KEYS: frozenset[str] = frozenset(
     {"iconPath", "icon", "image", "imageData", "base64", "data_url"}
 )
 
-# Diagnostic scaffolding for v0.4.2 push-event discovery.  Any inbound frame
-# whose event name or data shape looks app-related, but is not already in
-# `_HANDLED_EVENTS`, gets one-shot INFO logging so we can see what K39 and K45
-# actually push on app start / focus change.  Removed in v0.4.3 once the real
-# push listener (or REST-polling fallback) is wired up.
-_APP_EVENT_HINT_RE = re.compile(r"app|launch|run|focus|foreground|client", re.IGNORECASE)
-_APP_DATA_HINT_KEYS: frozenset[str] = frozenset(
-    {"appId", "app_type", "running", "focused", "foreground"}
-)
-# Events we already interpret in `_handle_message` — do NOT re-log as app hints.
-_HANDLED_EVENTS: frozenset[str] = frozenset({
-    "ms.channel.connect",
-    "ms.channel.unauthorized",
-    "ms.channel.disconnect",
-    "ed.installedApp.get",
-    "ed.apps.icon",
-    "ms.remote.touchEnable",
-    "ms.remote.touchDisable",
-    "ms.remote.imeStart",
-    "ms.remote.imeUpdate",
-    "ms.remote.imeEnd",
-})
-
 _LOGGER = logging.getLogger(__name__)
 
 
 def _looks_icon_shaped(msg: dict) -> bool:
-    """True if *msg* looks like it may carry icon bytes or an iconPath echo."""
+    """True if *msg* carries icon bytes or an iconPath echo.
+
+    Matches the K45 shape (no ``event`` key) off ``data`` alone, and
+    deliberately rejects ``ed.apps.launch`` ACKs (``data`` is an int / bool)
+    even though they share the ``ed.apps.`` event prefix.
+    """
     data = msg.get("data")
     if isinstance(data, dict):
         if _ICON_HINT_KEYS.intersection(data.keys()):
             return True
     elif isinstance(data, str) and data.startswith("data:image"):
         return True
-    return False
-
-
-def _looks_app_shaped(msg: dict) -> bool:
-    """True if *msg* looks like a push for app start / focus / running state.
-
-    Works off `data` alone when the TV omits the `event` field (K45 firmware
-    habit, same quirk we hit on icon replies).
-    """
-    event = msg.get("event", "") or ""
-    if event and event not in _HANDLED_EVENTS and _APP_EVENT_HINT_RE.search(event):
-        return True
-    data = msg.get("data")
-    if isinstance(data, dict):
-        if _APP_DATA_HINT_KEYS.intersection(data.keys()):
-            return True
-        attrs = data.get("attributes")
-        if isinstance(attrs, dict) and "appId" in attrs:
-            return True
     return False
 
 # Callbacks
@@ -182,9 +144,6 @@ class TizenWSClient:
         # replies can be routed back to the owning app.  Stable across reconnects
         # for the lifetime of this client (cleared on each fresh list).
         self._icon_path_to_app_id: dict[str, str] = {}
-        # Diagnostic (v0.4.2): unknown app-related frames pushed by the TV.
-        # Keyed by event name (or appId fallback) for one-shot INFO logging.
-        self._last_app_hints: dict[str, Any] = {}
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -506,23 +465,12 @@ class TizenWSClient:
         elif event == WS_EVENT_INSTALLED_APP:
             await self._handle_installed_apps(msg)
 
-        # Diagnostic catch-all: any message that looks icon-shaped is logged
-        # verbatim and captured, so we can decide the real icon pipeline after
-        # running `samsungtv_max.probe_app_icons` on both K39 and K45.
-        if event.startswith("ed.apps.") or _looks_icon_shaped(msg):
+        # Icon replies: route any actually icon-shaped frame into the
+        # decode/cache pipeline.  v0.4.2 diagnostics confirmed the TV does
+        # not push current-app events; current_app is resolved via REST
+        # polling in the coordinator from v0.4.3 onward.
+        if _looks_icon_shaped(msg):
             self._capture_icon_reply(raw, msg)
-
-        # v0.4.2 diagnostic: promote unhandled app-related pushes to INFO (once
-        # per unique event key) so we can identify the real "app started /
-        # focus changed" signal on K39 and K45.  Skip frames already handled
-        # above or already captured as icon replies.
-        if (
-            event not in _HANDLED_EVENTS
-            and not event.startswith("ed.apps.")
-            and not _looks_icon_shaped(msg)
-            and _looks_app_shaped(msg)
-        ):
-            self._capture_app_hint(raw, msg)
 
     async def _handle_channel_connect(self, msg: dict) -> None:
         """ms.channel.connect — extract token, fire on_connected."""
@@ -652,36 +600,6 @@ class TizenWSClient:
         if image_b64 and icon_path and self._on_icon_received:
             app_id = self._icon_path_to_app_id.get(icon_path, "")
             asyncio.ensure_future(self._on_icon_received(app_id, image_b64))
-
-    def _capture_app_hint(self, raw: str, msg: dict) -> None:
-        """Log a possibly-interesting app-related push frame one-shot at INFO.
-
-        Diagnostic only (v0.4.2).  The final push listener for ``current_app``
-        is implemented in v0.4.3 after the shape is confirmed empirically.
-        """
-        event = str(msg.get("event", "")) or "<no-event>"
-        data = msg.get("data")
-        app_id = ""
-        if isinstance(data, dict):
-            val = data.get("appId")
-            if isinstance(val, str) and val:
-                app_id = val
-            else:
-                attrs = data.get("attributes")
-                if isinstance(attrs, dict):
-                    a2 = attrs.get("appId")
-                    if isinstance(a2, str) and a2:
-                        app_id = a2
-
-        key = f"{event}|{app_id}" if app_id else event
-        first = key not in self._last_app_hints
-        self._last_app_hints[key] = msg
-
-        preview = raw if len(raw) <= 500 else raw[:500] + f"...[+{len(raw) - 500}b]"
-        log = _LOGGER.info if first else _LOGGER.debug
-        log(
-            "Samsung TV Max WS [%s]: app-hint [%s]: %s", self._host, key, preview
-        )
 
     async def _handle_ime_update(self, msg: dict) -> None:
         """ms.remote.imeUpdate — decode base64 field content, forward once per imeStart."""

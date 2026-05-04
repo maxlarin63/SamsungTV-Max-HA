@@ -11,4 +11,4 @@ Get-ChildItem $RepoRoot -Recurse -Include "*.pyc","*.pyo" |
     $p = Join-Path $RepoRoot $_
     if (Test-Path $p) { Remove-Item $p -Recurse -Force }
 }
-Write-Host "✓ Clean complete."
+Write-Host "OK: Clean complete."

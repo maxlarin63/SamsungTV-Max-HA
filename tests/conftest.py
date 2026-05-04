@@ -2,10 +2,29 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_configure(config: pytest.Config) -> None:  # noqa: ARG001
+    """Silence noisy DEBUG/INFO loggers in test output.
+
+    ``pytest-homeassistant-custom-component`` calls ``logging.basicConfig(level=INFO)`` at
+    import time and, when invoked with ``-v``, bumps the root logger to ``DEBUG``. That
+    floods the terminal with ``DEBUG:asyncio:Using proactor: IocpProactor`` (the autouse
+    ``enable_event_loop_debug`` fixture flips ``loop.set_debug(True)`` for every test) and
+    with the integration's own ``DEBUG`` / ``INFO`` chatter — none of which any test
+    asserts on (no ``caplog`` usage anywhere in the suite).
+
+    ``trylast=True`` ensures this runs *after* the plugin's ``pytest_configure``, otherwise
+    the plugin would re-raise the root logger to ``DEBUG`` on top of us.
+    """
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+    logging.getLogger("custom_components.samsungtv_max").setLevel(logging.WARNING)
 
 
 @pytest.hookimpl(hookwrapper=True)
